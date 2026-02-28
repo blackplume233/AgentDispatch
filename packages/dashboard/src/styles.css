@@ -139,3 +139,8 @@ a:hover { text-decoration: underline; }
 
 .loading { text-align: center; padding: 40px; color: var(--text-muted); }
 .error { text-align: center; padding: 40px; color: var(--danger); }
+
+.not-found { text-align: center; padding: 80px 24px; }
+.not-found h1 { font-size: 72px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px; }
+.not-found p { font-size: 18px; color: var(--text-muted); margin-bottom: 24px; }
+.not-found a { font-size: 16px; color: var(--primary); }

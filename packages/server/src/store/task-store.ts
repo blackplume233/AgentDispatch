@@ -16,8 +16,9 @@ export class TaskStore extends FileStore {
   }
 
   async save(task: Task): Promise<void> {
+    const md = this.taskToMarkdown(task);
     await this.writeJson(this.jsonPath(task.id), task);
-    await this.atomicWrite(this.mdPath(task.id), this.taskToMarkdown(task));
+    await this.atomicWrite(this.mdPath(task.id), md);
   }
 
   async get(taskId: string): Promise<Task | null> {
@@ -46,7 +47,7 @@ export class TaskStore extends FileStore {
       `id: "${task.id}"`,
       `title: "${task.title}"`,
       `status: "${task.status}"`,
-      `tags: [${task.tags.map((t) => `"${t}"`).join(', ')}]`,
+      `tags: [${(task.tags ?? []).map((t) => `"${t}"`).join(', ')}]`,
       `priority: "${task.priority}"`,
     ];
     if (task.claimedBy) {
