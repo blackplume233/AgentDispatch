@@ -660,6 +660,17 @@ interface Operation {
 | 集成测试 | `tests/integration/` | API 端到端、文件 I/O |
 | 黑盒测试 | `tests/e2e/` | 完整功能流程 |
 
+### QA 环境禁止模拟 [NEW 2026-02-28]
+
+> **⚠️ QA 环境必须使用真实组件跑通完整链路，禁止用脚本替代任何环节。**
+>
+> 详见 `guides/architecture-guide.md` § QA 环境真实性要求。
+
+常见错误：用 curl/fetch 注册 Client + setTimeout 模拟 Worker 进度 + 空 zip 充当产物。
+这种"模拟环境"能让 API 返回 200，但无法验证 IPC 通信、Worker 生命周期、真实产物生成等关键链路。
+
+**正确做法**：启动真实 `ClientNode` → `AcpController` 启动真实 Worker 子进程 → Worker 通过 CLI → IPC 上报进度 → Worker 生成真实产物提交。
+
 ### 测试命名
 
 ```

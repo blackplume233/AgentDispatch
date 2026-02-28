@@ -283,7 +283,62 @@ Server ────[check: 15s]──────→ 标记超时 Client 为 off
 
 ---
 
+## QA 环境真实性要求 [NEW 2026-02-28]
+
+> **⚠️ QA/测试环境的每个环节都必须使用真实组件，禁止用脚本模拟替代。**
+>
+> 这次 QA-fix 会话的核心教训：用 curl 模拟心跳、用 setTimeout 模拟进度、用空 zip 充当产物，
+> 这些「看起来能跑通」的测试实际上验证不了任何真实问题。
+
+### 真实 vs 模拟对照表
+
+| 环节 | ❌ 模拟做法（禁止） | ✅ 真实做法（必须） |
+|------|---------------------|---------------------|
+| **Client 注册** | curl POST 注册 + 外部脚本发心跳 | 启动真实 `ClientNode` 进程，内置心跳 |
+| **Worker 进程** | 主脚本 setTimeout 假装进度 | `AcpController.launchAgent()` 启动真实子进程 |
+| **进度上报** | 主脚本直接调 `reportProgress` API | Worker 子进程调用 `dispatch worker progress` CLI |
+| **任务完成** | 上传空 zip + 假 result.json | Worker 生成真实产物，通过 `dispatch worker complete` 提交 |
+| **心跳检测** | curl 定时 POST | `ClientNode` 内置 heartbeat timer |
+| **Tag 匹配** | 外部 Python 脚本轮询 + 匹配 | `Dispatcher` + `TagMatcher` 在 ClientNode 内运行 |
+| **Worker 管理** | Map 记录 busy/idle | `WorkerManager` 跟踪进程生命周期、崩溃重启 |
+
+### 为什么模拟不可接受
+
+1. **进度来源错误** — 真实架构中进度由 Worker 子进程通过 CLI → IPC → Node → Server 链路上报。模拟时由主进程直接 HTTP 调用，跳过了 IPC 和 CLI 整条链路，无法验证通信是否正常
+2. **产物为空** — 没有真实 Worker 就没有真实产出。空 zip + 假 result.json 能通过服务端验证，但 Dashboard 上展示的是空白内容，用户无法验证端到端流程
+3. **生命周期缺失** — 模拟环境不会出现 Worker 崩溃、心跳超时、任务释放等真实场景，这些恰恰是最容易出 bug 的地方
+4. **状态不一致** — 模拟脚本跟踪的 worker 状态（busy/idle）与 Server 上的 agent 状态是分离的，真实 `WorkerManager` 通过进程退出事件自动同步
+
+### QA 环境启动检查清单
+
+启动 QA 测试环境时，逐项确认：
+
+- [ ] Server 进程真实运行（`pnpm dev` 或 `node dist/index.js`）
+- [ ] Server 心跳检测已启动（`clientService.startHeartbeatCheck()`）
+- [ ] ClientNode 是真实 `ClientNode` 实例（非 HTTP 注册 + 外部心跳）
+- [ ] Worker 通过 `AcpController` 启动为子进程（非主进程内模拟）
+- [ ] 进度通过 CLI → IPC 链路上报（非直接 HTTP 调用）
+- [ ] 产物是 Worker 真实生成的文件（非空壳 zip）
+- [ ] Dashboard 连接到同一个 Server 实例
+
+---
+
 ## Anti-patterns
+
+### Don't: 用模拟脚本替代真实组件做 QA 测试 [NEW 2026-02-28]
+
+**问题**：
+```
+// 常见模拟手法 — 全部禁止
+curl -X POST /api/v1/clients/register ...   // 不是真实 ClientNode
+setInterval(() => fetch('/heartbeat'), 30000) // 不是真实心跳
+setTimeout(() => reportProgress(50), 3000)    // 不是真实 Worker 进度
+upload(emptyZip, fakeResult)                  // 不是真实产物
+```
+
+**为什么有害**：能让 HTTP 状态码全部返回 200，但完全跳过了 ClientNode → AcpController → Worker 子进程 → CLI → IPC → Node → Server 的完整链路。测出的"通过"毫无意义，真实链路上的 bug 一个也发现不了。
+
+**正确做法**：启动完整的 `ClientNode` 实例 + 真实 Worker 子进程。详见上方 § QA 环境真实性要求。
 
 ### Don't: 直接文件写入（绕过队列）
 

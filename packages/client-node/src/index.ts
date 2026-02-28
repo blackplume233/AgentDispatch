@@ -2,6 +2,7 @@ export const VERSION = '0.0.1';
 
 export { ClientNode } from './node.js';
 export { ServerHttpClient } from './http/server-client.js';
+export type { CompleteTaskOptions } from './http/server-client.js';
 export { IPCServer } from './ipc/ipc-server.js';
 export type { IPCHandler } from './ipc/ipc-server.js';
 export { TaskPoller } from './polling/task-poller.js';

@@ -15,15 +15,32 @@ export class AcpController {
   private clients: Map<string, DispatchAcpClient> = new Map();
   private events: AcpControllerEvents;
   private _nodeConfig: ClientConfig;
+  private _clientId: string | null = null;
 
   constructor(nodeConfig: ClientConfig, events: AcpControllerEvents) {
     this._nodeConfig = nodeConfig;
     this.events = events;
   }
 
-  async launchAgent(agentConfig: AgentConfig, _task?: Task): Promise<void> {
+  setClientId(clientId: string): void {
+    this._clientId = clientId;
+  }
+
+  async launchAgent(agentConfig: AgentConfig, task?: Task): Promise<void> {
     const acpClient = new DispatchAcpClient(agentConfig);
     this.clients.set(agentConfig.id, acpClient);
+
+    const extraEnv: Record<string, string> = {
+      SERVER_URL: this._nodeConfig.serverUrl,
+      AGENT_ID: agentConfig.id,
+      WORK_DIR: agentConfig.workDir,
+    };
+    if (task) {
+      extraEnv['TASK_ID'] = task.id;
+    }
+    if (this._clientId) {
+      extraEnv['CLIENT_ID'] = this._clientId;
+    }
 
     const agentProcess = new AgentProcess(agentConfig, {
       onExit: (code, signal) => {
@@ -33,7 +50,7 @@ export class AcpController {
       onStderr: (data) => {
         this.events.onAgentError(agentConfig.id, data);
       },
-    });
+    }, extraEnv);
 
     try {
       agentProcess.start();

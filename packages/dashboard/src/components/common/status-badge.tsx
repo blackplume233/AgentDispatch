@@ -30,7 +30,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold capitalize",
+        "inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-xs font-semibold capitalize",
         STATUS_STYLES[status] ?? "bg-muted text-muted-foreground",
         className,
       )}

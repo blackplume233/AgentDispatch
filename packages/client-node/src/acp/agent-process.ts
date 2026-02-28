@@ -6,14 +6,20 @@ export interface AgentProcessEvents {
   onStderr: (data: string) => void;
 }
 
+export interface AgentProcessEnv {
+  [key: string]: string;
+}
+
 export class AgentProcess {
   private process: ChildProcess | null = null;
   private config: AgentConfig;
   private events: AgentProcessEvents;
+  private extraEnv: AgentProcessEnv;
 
-  constructor(config: AgentConfig, events: AgentProcessEvents) {
+  constructor(config: AgentConfig, events: AgentProcessEvents, extraEnv?: AgentProcessEnv) {
     this.config = config;
     this.events = events;
+    this.extraEnv = extraEnv ?? {};
   }
 
   start(): { stdin: NodeJS.WritableStream; stdout: NodeJS.ReadableStream } {
@@ -25,7 +31,7 @@ export class AgentProcess {
     this.process = spawn(cmd, args, {
       cwd: this.config.workDir,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env },
+      env: { ...process.env, ...this.extraEnv },
     });
 
     this.process.stderr?.on('data', (data: Buffer) => {
