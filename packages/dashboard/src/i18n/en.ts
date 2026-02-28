@@ -99,10 +99,15 @@ export const en = {
     searchPlaceholder: "Search events...",
     noEvents: "No events yet",
     noEventsHint: "Events will appear here as tasks and clients interact.",
+    eventLog: "Event Log",
     time: "Time",
     event: "Event",
     source: "Source",
     details: "Details",
+  },
+  notFound: {
+    message: "Page not found",
+    backHome: "Back to Dashboard",
   },
   settings: {
     title: "Settings",

@@ -99,10 +99,15 @@ export const zhCN = {
     searchPlaceholder: "搜索事件...",
     noEvents: "暂无事件",
     noEventsHint: "当任务和客户端交互时，事件将显示在此处。",
+    eventLog: "事件日志",
     time: "时间",
     event: "事件",
     source: "来源",
     details: "详情",
+  },
+  notFound: {
+    message: "页面未找到",
+    backHome: "返回仪表盘",
   },
   settings: {
     title: "设置",

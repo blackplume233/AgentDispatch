@@ -36,7 +36,7 @@ export function TaskDetailPage() {
   if (!task) {
     return (
       <div className="flex flex-col items-center py-16 text-center">
-        <p className="text-sm text-muted-foreground">Task not found</p>
+        <p className="text-sm text-muted-foreground">{t("common.noData")}</p>
         <Link to="/tasks" className="mt-4">
           <Button variant="outline" size="sm">
             <ArrowLeft className="mr-2 h-3.5 w-3.5" />

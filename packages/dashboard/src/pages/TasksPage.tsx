@@ -194,6 +194,7 @@ export function TasksPage() {
 }
 
 function KanbanColumn({ label, tasks }: { label: string; tasks: Task[] }) {
+  const { t } = useTranslation();
   return (
     <div className="rounded-xl bg-muted/50 p-3">
       <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -223,7 +224,7 @@ function KanbanColumn({ label, tasks }: { label: string; tasks: Task[] }) {
           </Link>
         ))}
         {tasks.length === 0 && (
-          <p className="py-4 text-center text-xs text-muted-foreground/60">No tasks</p>
+          <p className="py-4 text-center text-xs text-muted-foreground/60">{t("common.noData")}</p>
         )}
       </div>
     </div>

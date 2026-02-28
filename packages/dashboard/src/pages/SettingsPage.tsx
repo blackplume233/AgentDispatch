@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Settings, Server, Monitor, Sun, Moon } from "lucide-react";
+import { Settings, Server, Monitor, Sun, Moon, Laptop } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,14 @@ export function SettingsPage() {
             >
               <Moon className="mr-2 h-3.5 w-3.5" />
               {t("settings.themeDark")}
+            </Button>
+            <Button
+              variant={theme === "system" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTheme("system")}
+            >
+              <Laptop className="mr-2 h-3.5 w-3.5" />
+              {t("settings.themeSystem")}
             </Button>
           </div>
         </CardContent>

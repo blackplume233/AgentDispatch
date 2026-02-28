@@ -165,7 +165,7 @@ export function EventsPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">
-              Event Log <span className="text-muted-foreground font-normal">({filtered.length} events)</span>
+              {t("events.eventLog")} <span className="text-muted-foreground font-normal">({filtered.length})</span>
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
