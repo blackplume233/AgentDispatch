@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.npm-cache-local/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Trellis workspace (developer-specific)
+.trellis/.developer
+.trellis/workspace/*/journal-*.md
+.trellis/tmp/
+
+# Trellis issues dirty tracker
+.trellis/issues/.dirty
+
+# Logs
+*.log
+logs/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# GitNexus index (regeneratable)
+.gitnexus/

@@ -1,0 +1,12 @@
+---
+description: Use incremental testing during ship instead of full test suite
+globs:
+alwaysApply: true
+---
+
+# Ship Testing Convention
+
+During ship review, run **incremental tests** instead of the full suite:
+
+- Use the project's incremental test command which only runs tests related to uncommitted changes
+- Only fall back to full test suite when explicitly requested or when changes touch shared infrastructure (e.g. test config, tsconfig, dependency files)
