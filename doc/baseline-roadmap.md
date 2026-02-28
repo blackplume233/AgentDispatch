@@ -5,15 +5,17 @@
 
 ## 1. 里程碑总览
 
-| 里程碑 | 周期 | 目标结果 | 退出条件 |
-|---|---|---|---|
-| M0 - 工程基线 | Week 1 | Monorepo + 质量门禁可用 | 全仓可构建/可测试/可 lint |
-| M1 - Server MVP | Week 2-3 | Task/Client 核心 API + 文件持久化 | 任务主流程接口稳定 |
-| M2 - ClientNode + CLI MVP | Week 4 | 节点可注册、心跳、IPC 控制 | CLI 能稳定驱动 Node |
-| M3 - Worker 执行闭环 | Week 5 | Worker 进度/完成/失败链路打通 | 产物提交与校验生效 |
-| M4 - 分发引擎 V1 | Week 6 | tag-auto / manager / hybrid 基线可跑 | 三种模式至少各 1 条用例通过 |
-| M5 - Dashboard MVP | Week 7 | 任务/节点可视化管理 | 关键页面可操作、可刷新 |
-| M6 - 稳定化与发布基线 | Week 8 | 日志审计、容错、文档、交付包 | 回归全绿，满足发布门槛 |
+| 里程碑 | 周期 | 目标结果 | 退出条件 | 版本 |
+|---|---|---|---|---|
+| M0 - 工程基线 | Week 1 | Monorepo + 质量门禁可用 | 全仓可构建/可测试/可 lint | — |
+| M1 - Server MVP | Week 2-3 | Task/Client 核心 API + 文件持久化 | 任务主流程接口稳定 | v1.0-alpha |
+| M2 - ClientNode + CLI MVP | Week 4 | 节点可注册、心跳、IPC 控制 | CLI 能稳定驱动 Node | — |
+| M3 - Worker 执行闭环 | Week 5 | Worker 进度/完成/失败链路打通 | 产物提交与校验生效 | **v1.0** |
+| M4 - 分发引擎 V1 | Week 6 | tag-auto / manager / hybrid 基线可跑 | 三种模式至少各 1 条用例通过 | **v1.5** |
+| M5 - Dashboard MVP | Week 7 | 任务/节点可视化管理 | 关键页面可操作、可刷新 | — |
+| M6 - 稳定化与发布基线 | Week 8 | 日志审计、容错、文档、交付包 | 回归全绿，满足发布门槛 | **v2.0** |
+
+> 详细任务清单与验收标准见 [.trellis/roadmap.md](../.trellis/roadmap.md)。
 
 ## 2. 分阶段计划
 

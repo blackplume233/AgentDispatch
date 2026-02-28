@@ -1,0 +1,33 @@
+{
+  "name": "@agentdispatch/server",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:integration": "vitest run tests/integration/",
+    "lint": "eslint src/",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@agentdispatch/shared": "workspace:*",
+    "fastify": "^5.0.0",
+    "@fastify/multipart": "^9.0.0",
+    "zod": "^3.25.0",
+    "uuid": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/uuid": "^10.0.0",
+    "typescript": "catalog:",
+    "tsup": "catalog:",
+    "vitest": "catalog:",
+    "eslint": "catalog:",
+    "tsx": "catalog:"
+  }
+}

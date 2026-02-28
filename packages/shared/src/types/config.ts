@@ -1,0 +1,98 @@
+import type { DispatchMode } from './client.js';
+
+export interface ServerConfig {
+  host: string;
+  port: number;
+  dataDir: string;
+  logLevel: 'debug' | 'info' | 'warn' | 'error';
+  queue: {
+    maxSize: number;
+    processInterval: number;
+  };
+  heartbeat: {
+    timeout: number;
+    checkInterval: number;
+  };
+  callbacks: {
+    retryCount: number;
+    retryDelay: number;
+  };
+  artifacts: {
+    dir: string;
+    maxZipSizeBytes: number;
+    validateOnUpload: boolean;
+    retainAfterDays: number;
+  };
+  logging: {
+    dir: string;
+    rotateDaily: boolean;
+    retainDays: number;
+    httpLog: boolean;
+    auditLog: boolean;
+  };
+}
+
+export interface DispatchRule {
+  taskTags: string[];
+  targetAgentId?: string;
+  targetCapabilities?: string[];
+  priority?: number;
+}
+
+export interface AgentConfig {
+  id: string;
+  type: 'manager' | 'worker';
+  command: string;
+  args?: string[];
+  workDir: string;
+  capabilities?: string[];
+  autoClaimTags?: string[];
+  allowMultiProcess?: boolean;
+  promptTemplate?: string;
+  acpCapabilities?: {
+    fs?: {
+      readTextFile?: boolean;
+      writeTextFile?: boolean;
+    };
+    terminal?: boolean;
+  };
+  permissionPolicy?: 'auto-allow' | 'auto-deny' | 'prompt';
+}
+
+export interface ClientConfig {
+  name: string;
+  serverUrl: string;
+  tags: string[];
+  dispatchMode: DispatchMode;
+  polling: {
+    interval: number;
+  };
+  ipc: {
+    path: string;
+  };
+  heartbeat: {
+    interval: number;
+  };
+  autoDispatch: {
+    rules: DispatchRule[];
+    fallbackAction?: 'skip' | 'queue-local';
+  };
+  logging: {
+    dir: string;
+    rotateDaily: boolean;
+    retainDays: number;
+    httpLog: boolean;
+    auditLog: boolean;
+    agentLog: boolean;
+  };
+  agents: AgentConfig[];
+}
+
+export interface ErrorResponse {
+  error: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+  timestamp: string;
+}

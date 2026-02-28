@@ -1,0 +1,28 @@
+{
+  "name": "@agentdispatch/client-cli",
+  "version": "0.0.1",
+  "type": "module",
+  "bin": {
+    "dispatch": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "lint": "eslint src/",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@agentdispatch/shared": "workspace:*",
+    "commander": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "tsup": "catalog:",
+    "vitest": "catalog:",
+    "eslint": "catalog:",
+    "tsx": "catalog:"
+  }
+}
