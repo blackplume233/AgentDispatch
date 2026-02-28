@@ -31,6 +31,7 @@
 - [ ] 配置 ESLint + Prettier
 - [ ] 配置 Vitest (每个 package 独立配置)
 - [ ] 配置 tsup / tsx 编译
+- [ ] 安装核心依赖: `@agentclientprotocol/sdk` ^0.14.x + `zod` (peer dep) 到 client-node
 - [ ] 建立 CI 流程 (build / test / lint 三门禁)
 - [ ] 编写 README.md 开发指引
 - [ ] 对齐 `.trellis/spec/*` 入口与开发流程
@@ -171,9 +172,10 @@
 
 ### 任务清单
 
-- [ ] **client-node**: ACP Controller (Agent 进程启动/停止/健康检查)
+- [ ] **client-node**: ACP Controller — `@agentclientprotocol/sdk` 集成 (spawn → ndJsonStream → ClientSideConnection → initialize → newSession → prompt)
+- [ ] **client-node**: DispatchAcpClient — 实现 `acp.Client` 接口 (sessionUpdate / requestPermission / fs / terminal)
 - [ ] **client-node**: Agent 注册/注销 (Manager 可选, Worker 必须)
-- [ ] **client-node**: Prompt Template Engine (读取 md → 替换 {{变量}} → 传入 ACP)
+- [ ] **client-node**: Prompt Template Engine (读取 md → 替换 {{变量}} → session/prompt 投递)
 - [ ] **client-node**: Worker prompt 默认模板接入
 - [ ] **client-cli**: Agent 管理命令 (`dispatch agent add/remove/list/status/restart`)
 - [ ] **client-cli**: Worker 专用命令 (`dispatch worker progress/complete/fail/status/log/heartbeat`)
@@ -187,7 +189,8 @@
 
 | 检查项 | 方式 | 通过条件 |
 |--------|------|----------|
-| ACP 进程管理 | 单元测试 | 启动进程 → 获取 PID → 健康检查 → 优雅停止 |
+| ACP 连接生命周期 | 单元测试 | spawn → ndJsonStream → initialize → newSession → prompt → stopReason → 进程退出 |
+| ACP Client 回调 | 单元测试 | sessionUpdate 日志记录、requestPermission 按策略响应、fs 限制 workDir |
 | Agent 注册 | 集成测试 | `dispatch agent add --type worker ...` → Agent 出现在列表中 |
 | 模板拼装 | 单元测试 | 所有必填变量被替换，无残留 `{{...}}`，缺失变量产生警告 |
 | Worker CLI 链路 | 集成测试 | `dispatch worker progress` → Node 收到 → Server 更新文件 |
@@ -395,7 +398,7 @@
 
 | 风险 | 影响 | 缓解策略 |
 |------|------|----------|
-| ACP 协议细节未定 | M3 卡住 | 先用最简实现(stdin/stdout)，后续可替换 |
+| ACP SDK 版本升级带来 breaking change | M3 卡住 | 锁定 `@agentclientprotocol/sdk` ^0.14.x；关注 PROTOCOL_VERSION 变化 |
 | 接口频繁变更导致联调反复 | 进度延迟 | 先改 spec 再改实现；接口变更强制评审 + Change Log |
 | Worker 产物不规范导致失败率高 | 闭环不稳定 | ClientNode 本地预校验 + prompt 模板强约束 |
 | Manager Agent 依赖真实 AI 工具 | M4 manager 模式难测 | 先做 tag-auto 跑通全链路，manager 用 mock Agent |

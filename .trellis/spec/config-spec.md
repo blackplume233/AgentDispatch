@@ -20,6 +20,7 @@
 |------|------|------|----------|
 | 2026-02-28 | ServerConfig 新增 `artifacts` 配置段；Server 数据目录新增 `artifacts/{task-id}/` 存储结构 | [CHANGED] | Server |
 | 2026-02-28 | ClientConfig 新增 `dispatchMode` 字段；Manager Agent 从必须改为按模式可选；DispatchRule 新增 `priority`；autoDispatch 新增 `fallbackAction` | [CHANGED] | ClientNode, Server, Dashboard |
+| 2026-02-28 | AgentConfig 明确 ACP SDK 集成字段；新增 `acpCapabilities` 配置段；`command` 字段说明更新为 ACP Agent 启动命令 | [CHANGED] | ClientNode |
 | 2026-02-28 | 初始化全部配置定义 | NEW | 全部模块 |
 
 ---
@@ -34,7 +35,15 @@
 | `DISPATCH_LOG_LEVEL` | string | `info` | 日志级别: debug/info/warn/error |
 | `DISPATCH_QUEUE_MAX_SIZE` | number | `1000` | 操作队列最大长度 |
 | `DISPATCH_HEARTBEAT_TIMEOUT` | number | `60000` | 心跳超时（ms），超时判定 Client 离线 |
-| `DISPATCH_CLIENT_IPC_PATH` | string | 平台相关 | ClientNode IPC 管道/socket 路径 |
+| `DISPATCH_CLIENT_IPC_PATH` | string | 平台相关（见下方） | ClientNode IPC 管道/socket 路径 |
+
+**IPC 路径平台默认值** [CHANGED 2026-02-28]：
+
+| 平台 | 默认值 | 说明 |
+|------|--------|------|
+| Windows | `\\.\pipe\dispatch-{name}` | Named Pipe |
+| Linux | `{XDG_RUNTIME_DIR}/dispatch-{name}.sock`，fallback `{tmpdir}/dispatch-{uid}/dispatch-{name}.sock` | Unix Domain Socket |
+| macOS | `{tmpdir}/dispatch-{uid}/dispatch-{name}.sock` | Unix Domain Socket |
 
 ---
 
@@ -124,7 +133,7 @@ interface ClientConfig {
   };
 
   ipc: {
-    path: string;                  // IPC socket/pipe 路径
+    path: string;                  // IPC socket/pipe 路径（平台自适应，见 § 环境变量表）
   };
 
   heartbeat: {
@@ -180,14 +189,44 @@ Agent 作为 ClientConfig 的一部分注册。
 interface AgentConfig {
   id: string;                      // Agent 唯一 ID
   type: 'manager' | 'worker';     // 角色类型
-  command: string;                 // ACP 版本的启动命令
-  workDir: string;                 // 工作目录
+
+  // ACP 进程配置 [CHANGED 2026-02-28]
+  // command 是 ACP Agent 子进程的启动命令，通过 child_process.spawn 执行
+  // Agent 必须支持 ACP 协议 (JSON-RPC 2.0 over stdin/stdout ndjson)
+  // 示例: "npx tsx ./my-agent.ts"、"claude --agent"、"gemini-cli"
+  command: string;
+  args?: string[];                 // 启动参数（可选，command 也可包含参数）
+
+  workDir: string;                 // 工作目录（ACP newSession 的 cwd）
   capabilities?: string[];         // 职责倾向（Worker 类型）
   autoClaimTags?: string[];        // 根据 tag 自动接取
   allowMultiProcess?: boolean;     // 是否允许创建多进程，默认 false
   promptTemplate?: string;         // Worker 启动 prompt 模板路径
+
+  // ACP 能力配置 [CHANGED 2026-02-28]
+  // ClientNode 在 initialize 时向 Agent 声明的能力
+  // 默认值见下方说明，通常不需要修改
+  acpCapabilities?: {
+    fs?: {
+      readTextFile?: boolean;      // 允许 Agent 读取 workDir 内文件，默认 true
+      writeTextFile?: boolean;     // 允许 Agent 写入 workDir 内文件，默认 true
+    };
+    terminal?: boolean;            // 允许 Agent 创建终端执行命令，默认 true
+  };
+
+  // ACP 权限策略 [CHANGED 2026-02-28]
+  // 当 Agent 请求 requestPermission 时的自动应答策略
+  permissionPolicy?: 'auto-allow' | 'auto-deny' | 'prompt';  // 默认 'auto-allow'
 }
 ```
+
+**ACP 能力默认值说明**：
+
+| 能力 | Worker 默认 | Manager 默认 | 说明 |
+|------|:----------:|:-----------:|------|
+| `fs.readTextFile` | true | true | Agent 可请求读取 workDir 内文件 |
+| `fs.writeTextFile` | true | false | Manager 默认只读，不直接写文件 |
+| `terminal` | true | false | Worker 需要终端执行 CLI 命令；Manager 不需要 |
 
 ### Manager Agent（可选） [CHANGED 2026-02-28]
 

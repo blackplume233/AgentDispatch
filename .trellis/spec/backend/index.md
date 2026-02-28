@@ -10,10 +10,12 @@
 |-------|-----------|-------|
 | Runtime | Node.js (LTS) | TypeScript strict mode |
 | HTTP Framework | Express / Fastify | TBD — 首个 Sprint 确定 |
+| ACP SDK | `@agentclientprotocol/sdk` ^0.14.x | Agent 通信协议 (JSON-RPC 2.0 over stdio) [CHANGED 2026-02-28] |
 | Testing | Vitest | TDD 驱动 |
 | Linting | ESLint + Prettier | 统一代码风格 |
 | Package Manager | pnpm | Monorepo workspace |
 | Build | tsup / tsx | 快速编译 |
+| Validation | zod ^3.25 \| ^4.0 | DTO / config schema 校验 (ACP SDK peer dep) |
 
 ---
 
@@ -51,9 +53,10 @@ packages/
 │   │   ├── node.ts             # ClientNode 主逻辑
 │   │   ├── ipc/                # IPC 服务端
 │   │   │   └── ipc-server.ts
-│   │   ├── acp/                # ACP Agent 控制
-│   │   │   ├── acp-controller.ts
-│   │   │   └── agent-process.ts
+│   │   ├── acp/                # ACP Agent 控制 (@agentclientprotocol/sdk)
+│   │   │   ├── acp-controller.ts   # Agent 进程 spawn + ClientSideConnection 管理
+│   │   │   ├── dispatch-acp-client.ts  # acp.Client 接口实现 (sessionUpdate/requestPermission/fs/terminal)
+│   │   │   └── agent-process.ts    # 单个 Agent 进程封装 (lifecycle + stream)
 │   │   ├── agents/             # Agent 管理
 │   │   │   ├── manager-handler.ts  # Manager ACP 消息处理（可选）
 │   │   │   └── worker-manager.ts   # Worker 生命周期管理
@@ -124,6 +127,101 @@ packages/
 2. 第三方依赖
 3. `@shared/` 共享模块
 4. 相对路径模块
+
+---
+
+## Cross-Platform（跨平台强制规范） [CHANGED 2026-02-28]
+
+> **⚠️ 所有产物必须在 Linux / macOS / Windows 三端可构建、可测试、可运行。**
+>
+> 违反本节任何规则视为 P1 缺陷。
+
+### 文件路径
+
+| 规则 | 正确 | 错误 |
+|------|------|------|
+| 拼接路径 | `path.join('a', 'b', 'c')` | `'a/b/c'` 或 `'a\\b\\c'` |
+| 解析绝对路径 | `path.resolve(baseDir, rel)` | 字符串拼接 |
+| 比较路径 | `path.normalize(a) === path.normalize(b)` | 直接字符串比较 |
+| 临时目录 | `os.tmpdir()` | 硬编码 `/tmp` 或 `C:\Temp` |
+| 用户目录 | `os.homedir()` | 硬编码 `~` 或 `%USERPROFILE%` |
+
+**禁止**：路径中出现硬编码的 `/` 或 `\` 作为分隔符。唯一例外是 URL 路径（HTTP route）。
+
+### IPC 通信
+
+- **Windows**：Named Pipe，路径格式 `\\.\pipe\dispatch-{name}`
+- **Linux / macOS**：Unix Domain Socket，路径格式 `{runtimeDir}/dispatch-{name}.sock`
+
+```typescript
+import { platform } from 'os';
+
+function getDefaultIpcPath(name: string): string {
+  if (platform() === 'win32') {
+    return `\\\\.\\pipe\\dispatch-${name}`;
+  }
+  const runtimeDir = process.env.XDG_RUNTIME_DIR
+    ?? path.join(os.tmpdir(), `dispatch-${process.getuid?.() ?? 'default'}`);
+  return path.join(runtimeDir, `dispatch-${name}.sock`);
+}
+```
+
+### 进程管理
+
+| 操作 | 跨平台方案 |
+|------|-----------|
+| 优雅终止 | 先发 `SIGTERM`，Windows 上使用 `process.kill(pid)` 或 `taskkill` |
+| 强制终止 | `SIGKILL`（Unix）/ `taskkill /F`（Windows） |
+| 信号监听 | 监听 `SIGINT` + `SIGTERM`；Windows 上 `SIGTERM` 不可靠，额外监听 `'exit'` 事件 |
+| 子进程启动 | 使用 `cross-spawn` 或 Node.js `child_process` 的 `shell: true`（慎用）；推荐 `execa` |
+| 进程存活检查 | `process.kill(pid, 0)` 三端通用 |
+
+### Shell 命令调用
+
+Worker 通过 CLI 与 Node 通信，CLI 可执行文件路径必须跨平台：
+
+```typescript
+function getCliBin(): string {
+  // 优先使用 npx/pnpm exec 方式，避免平台差异
+  // 或使用 Node.js 直接执行入口文件
+  return process.execPath + ' ' + path.resolve(__dirname, '../cli/index.js');
+}
+```
+
+**禁止**：
+- 在 prompt 模板中硬编码 `./dispatch` 或 `dispatch.exe`
+- 依赖 `$PATH` 中存在特定可执行文件名
+
+### 文件系统
+
+| 注意项 | 说明 |
+|--------|------|
+| 大小写敏感性 | Linux 区分大小写，macOS/Windows 默认不区分 → 文件名统一使用 `kebab-case` 小写 |
+| 文件锁 | Windows 对打开的文件有强制锁 → 日志文件用追加模式、避免删除正在写入的文件 |
+| 换行符 | 程序写出的文件统一使用 `\n`（LF），`.gitattributes` 保证 checkout 一致性 |
+| 最大路径长度 | Windows 默认 260 字符限制 → 数据目录不要嵌套过深，任务 ID 使用短格式 |
+| 权限位 | `chmod` 在 Windows 上无效 → 不依赖 Unix 权限位做逻辑判断 |
+
+### 环境变量
+
+- Linux/macOS 大小写敏感，Windows 不敏感 → 所有 `DISPATCH_*` 环境变量使用 **SCREAMING_SNAKE_CASE**，代码中按大写读取
+- 使用 `process.env` 读取，不使用 shell 特定语法（如 `$VAR`）
+
+### 测试
+
+- CI 矩阵必须包含 `ubuntu-latest`、`macos-latest`、`windows-latest`
+- 测试中的文件路径断言使用 `path.join()` 构造期望值，不硬编码分隔符
+- 临时文件使用 `os.tmpdir()` + 随机子目录，测试结束清理
+
+### Anti-pattern
+
+| Don't | Do |
+|-------|-----|
+| `fs.writeFileSync('/tmp/foo')` | `fs.writeFileSync(path.join(os.tmpdir(), 'foo'))` |
+| `exec('kill -9 ' + pid)` | 使用 `process.kill(pid, 'SIGKILL')` 或 `tree-kill` 库 |
+| `path.sep === '/'` 做平台判断 | `process.platform === 'linux'` |
+| `#!/usr/bin/env bash` 作为 npm scripts | `tsx src/index.ts` 或 `node dist/index.js` |
+| 依赖 `which` / `where` 查找命令 | 使用 `require.resolve()` 或显式配置路径 |
 
 ---
 
@@ -346,7 +444,7 @@ createdAt: "2026-02-28T10:00:00Z"
 
 ## Prompt Template Engine
 
-Worker 启动时，ClientNode Core 负责模板拼装。
+Worker 启动时，ClientNode Core 负责模板拼装，并通过 ACP `session/prompt` 将最终 prompt 投递给 Agent。
 
 ### 拼装流程
 
@@ -386,6 +484,57 @@ async function buildWorkerPrompt(
   }
 
   return prompt;
+}
+```
+
+### ACP 投递流程 [CHANGED 2026-02-28]
+
+> 官方参考：https://agentclientprotocol.com/protocol/session-setup / https://agentclientprotocol.com/protocol/prompt-turn
+
+模板拼装完成后，通过 ACP SDK 投递给 Worker Agent：
+
+```typescript
+import * as acp from '@agentclientprotocol/sdk';
+
+async function launchWorkerWithTask(
+  agentProcess: AgentProcess,   // 已 spawn 的 Agent 进程封装
+  task: Task,
+  agentConfig: AgentConfig,
+  nodeConfig: ClientConfig,
+): Promise<void> {
+  const { connection } = agentProcess;
+
+  // 1. initialize — 协商协议版本 + 声明 ClientNode 能力
+  await connection.initialize({
+    protocolVersion: acp.PROTOCOL_VERSION,
+    clientCapabilities: {
+      fs: { readTextFile: true, writeTextFile: true },
+      terminal: true,
+    },
+    clientInfo: {
+      name: 'agentdispatch-node',
+      title: nodeConfig.name,
+      version: PKG_VERSION,
+    },
+  });
+
+  // 2. newSession — 创建会话
+  const { sessionId } = await connection.newSession({
+    cwd: agentConfig.workDir,
+    mcpServers: [],
+  });
+
+  // 3. 拼装 prompt
+  const promptText = await buildWorkerPrompt(task, agentConfig, nodeConfig);
+
+  // 4. session/prompt — 投递任务
+  const result = await connection.prompt({
+    sessionId,
+    prompt: [{ type: 'text', text: promptText }],
+  });
+
+  // 5. 根据 stopReason 处理结果
+  handleStopReason(result.stopReason, task, agentProcess);
 }
 ```
 

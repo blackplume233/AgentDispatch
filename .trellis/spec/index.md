@@ -15,11 +15,12 @@ AgentDispatch 是一个 CS 架构的 **Agent 任务分发平台**，由四个核
 
 ### 核心设计原则
 
+- **跨平台** — 所有产物必须在 Linux / macOS / Windows 三端可运行，禁止平台特定硬编码
 - **TDD 驱动** — 每个功能必须先写测试
 - **文件持久化** — 所有任务状态以 Markdown/JSON 文件落盘
 - **全量操作日志** — **所有操作必须落盘记录**：AI 交互、任务生命周期事件、HTTP 调用（收发双向），客户端和服务器均执行
 - **单线程队列** — Server 操作无需考虑高并发
-- **ACP 通信** — Client 通过 ACP 管理 Agent 进程
+- **ACP 通信** — Client 通过 `@agentclientprotocol/sdk` (JSON-RPC 2.0 over stdio) 管理 Agent 进程
 
 ## Structure
 
@@ -113,6 +114,7 @@ spec/
 3. **Keep it current** — After every feature/fix that changes behavior, sync the spec
 4. **TDD first** — 先写测试，再写实现
 5. **Git workflow** — 遵循 conventional commits，功能分支开发
+6. **Cross-platform** — 所有产物必须在 Linux / macOS / Windows 上可构建、可测试、可运行（详见 `backend/index.md` § Cross-Platform）
 
 > **⚠️ 接口/契约变更规则 (CRITICAL)**
 >

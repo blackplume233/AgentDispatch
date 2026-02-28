@@ -110,31 +110,57 @@ Manager Agent 通过 ACP 与 ClientNode Core 通信，职责**仅限于**：
 |--------|--------|------|------|
 | ClientNode Core | Server | HTTP | 任务申领/完成/进度转发/心跳 |
 | Worker Agent | ClientCLI → Node Core | CLI (shell) → IPC | 进度上报/产物提交/状态查询 |
-| Manager Agent | Node Core | ACP | 分发建议/状态监控 |
+| ClientNode Core | Worker/Manager Agent | ACP (stdio ndjson, JSON-RPC 2.0) | prompt 投递/session 管理 |
+| Manager Agent | Node Core | ACP (`session/prompt` ↔ `PromptResponse`) | 分发建议/状态监控 |
 | 用户 | ClientCLI → Node Core | CLI (shell) → IPC | 手动管理操作 |
 | Dashboard | Server | HTTP | 查看状态/创建任务 |
 
-### 5. ACP 通信协议
+### 5. ACP 通信协议 [CHANGED 2026-02-28]
 
-**决策**：ClientNode 通过 ACP 管理 Agent 进程生命周期
+> 官方文档：https://agentclientprotocol.com
 
-**ACP 用途**：
-- 启动 Agent 进程（指定命令行 + 工作目录 + prompt 模板）
-- Manager Agent 与 Node Core 的双向消息通道
-- 监控 Agent 进程健康状态（心跳/退出码）
-- 优雅终止 Agent 进程
+**决策**：使用 `@agentclientprotocol/sdk` v0.14.x 实现 ClientNode ↔ Agent 通信
 
-> **注意**：Worker 不通过 ACP 与 Node 通信。Worker 被 ACP 启动后，通过 CLI 命令与 Node 交互。ACP 仅用于进程生命周期管理和 Manager 的顾问通道。
+**ACP 协议关键特征** (来自官方 Architecture 页)：
+- 基于 **JSON-RPC 2.0**，消息 UTF-8 编码
+- **stdio 传输**：Client 启动 Agent 子进程，通过 stdin/stdout 交换**换行符分隔的 JSON-RPC 消息**
+- Agent stderr 可用于日志（Client 可捕获/转发/忽略）
+- **一个连接可支持多个并发 session**
+- 大量使用 **JSON-RPC notifications** 实现实时流式更新
+- **双向请求**：Agent 可向 Client 发起请求（如文件读写、终端操作、权限申请）
+
+**ClientNode 角色 = ACP Client**，职责：
+- 启动 Agent 子进程，建立 ACP 连接
+- 声明 ClientCapabilities (`fs.readTextFile`, `fs.writeTextFile`, `terminal`)
+- 提供文件系统方法 (`fs/read_text_file`, `fs/write_text_file`)
+- 提供终端方法 (`terminal/create`, `terminal/output`, `terminal/wait_for_exit`, `terminal/kill`, `terminal/release`)
+- 处理 Agent 的权限请求 (`session/request_permission`)
+- 接收 Agent 的通知 (`session/update`：消息流、tool calls、计划)
+- 调用 `session/prompt` 投递任务、`session/cancel` 中断操作
+
+**Worker/Manager Agent 角色 = ACP Agent**，通过 `AgentSideConnection` 响应。
+
+**双通道模型**：Worker Agent 有两条通信通道：
+1. **ACP 通道 (stdio)** — 任务 prompt 下发、Agent 消息流、文件系统、终端、tool calls、生命周期
+2. **CLI 通道 (shell exec)** — AgentDispatch 特有的结构化任务操作 (`dispatch worker progress/complete/fail`)
+
+> Worker 被 ACP 启动后，通过 CLI 命令（直接 shell exec 或 ACP terminal/create）与 Node 交互进行任务操作。
+> ACP 提供标准化 Agent 能力（文件读写、终端执行、权限控制）；CLI 提供 AgentDispatch 特有的结构化操作。
 
 ### 6. IPC 通信 (CLI ↔ ClientNode)
 
-**决策**：Named Pipe (Windows) / Unix Socket
+**决策**：Named Pipe (Windows) / Unix Domain Socket (Linux/macOS)
 
 **原因**：
 - CLI 和 ClientNode 在同一机器
 - 比 HTTP 更轻量
 - 天然的本地进程间通信方案
 - Worker 调用 CLI 命令时，CLI 内部通过 IPC 转发给 Node Core
+
+**跨平台注意** [CHANGED 2026-02-28]：
+- Node.js 的 `net.createServer()` + `net.connect()` 同时支持 Named Pipe 和 Unix Socket，统一使用此 API
+- IPC 路径由配置自动适配平台（见 `config-spec.md` § IPC 路径平台默认值）
+- 代码中**不做** `if (win32) { ... } else { ... }` 分支处理 IPC 连接逻辑，仅在路径生成时区分平台
 
 ### 6. 全量操作日志落盘
 
@@ -280,11 +306,17 @@ Worker → `dispatch worker progress/complete/fail` → CLI → IPC → Node Cor
 
 **正确做法**：Manager 仅是 Node 的顾问（分发建议 + 状态监控），Worker 直接通过 CLI 与 Node Core 通信
 
-### Don't: Worker 通过 ACP 消息上报进度
+### Don't: Worker 通过 ACP `session/update` 上报任务进度
 
-**问题**：ACP 用于进程管理和 Manager 通道，不是 Worker 的通信协议
+**问题**：ACP `session/update` 是通用 Agent 消息通知，不具备 AgentDispatch 的结构化任务操作语义（进度百分比、产物校验、状态机转换）
 
-**正确做法**：Worker 调用 `dispatch worker` CLI 命令上报。ACP 仅用于启动/停止 Worker 进程。
+**正确做法**：Worker 调用 `dispatch worker` CLI 命令上报。ACP 用于 prompt 投递、session 管理、通用文件/终端能力。
+
+### Don't: 自行实现 ACP 协议的 JSON-RPC 层
+
+**问题**：增加维护成本，协议升级困难
+
+**正确做法**：使用 `@agentclientprotocol/sdk` 的 `ClientSideConnection` / `AgentSideConnection`，SDK 负责消息序列化、方法路由、错误处理。
 
 ### Don't: 阻塞操作队列
 
@@ -297,3 +329,13 @@ Worker → `dispatch worker progress/complete/fail` → CLI → IPC → Node Cor
 **问题**：不同用户使用不同的 AI 工具
 
 **正确做法**：Agent 启动命令由配置文件指定
+
+### Don't: 使用平台特定 API 或路径 [CHANGED 2026-02-28]
+
+**问题**：仅在开发者的 OS 上可运行，其他平台直接崩溃
+
+**正确做法**：
+- 路径使用 `path.join()` / `path.resolve()`
+- IPC 路径通过配置层自动适配平台
+- 进程信号使用 Node.js API 而非 shell 命令
+- 详见 `backend/index.md` § Cross-Platform

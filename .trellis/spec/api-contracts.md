@@ -24,6 +24,7 @@
 | 2026-02-28 | Worker 通信方式明确为 CLI 调用；CLI 新增 `dispatch worker` 命令组（progress/complete/fail/status/log/heartbeat）；Manager 职责收窄为 Node 分发顾问 | [CHANGED] | ClientNode, ClientCLI, Worker |
 | 2026-02-28 | 任务完成必须提交产物（zip + result.json）；Task 新增 `artifacts` 字段；complete 接口改为 multipart；新增 4 个 ARTIFACT 错误码 | [CHANGED] | Server, ClientNode, Worker, Dashboard |
 | 2026-02-28 | Manager Agent 从必须改为可选；RegisterClientDTO/Client 新增 `dispatchMode` 字段 | [CHANGED] | Server, ClientNode, Dashboard |
+| 2026-02-28 | ACP 实现确定使用 `@agentclientprotocol/sdk` v0.14.x；ACP 协议章节重写为基于 JSON-RPC 2.0 的 SDK 集成规范；新增 ClientNode ACP 能力声明、会话生命周期、双通道通信模型 | [CHANGED] | ClientNode, Worker, Manager |
 | 2026-02-28 | 初始化全部接口定义 | NEW | 全部模块 |
 
 ---
@@ -303,19 +304,260 @@ JSON + 换行符分隔（JSON Lines / ndjson）
 
 ---
 
-## 4. ACP Protocol (ClientNode ↔ Agent)
+## 4. ACP Protocol (ClientNode ↔ Agent) [CHANGED 2026-02-28]
 
-ClientNode 通过 ACP (Agent Communication Protocol) 管理 Agent 进程。
+> **实现依赖**：`@agentclientprotocol/sdk` v0.14.x (npm)
+>
+> **官方文档**：https://agentclientprotocol.com
+>
+> ACP (Agent Client Protocol) 是标准化 **代码编辑器 (Client)** 与 **编程 Agent** 之间通信的开放协议。
+> 协议基于 **JSON-RPC 2.0**，消息编码为 UTF-8，通过 **stdio** 传输（换行符分隔，每条消息不含内嵌换行）。
+>
+> 在 AgentDispatch 中，**ClientNode 扮演 ACP Client**，**Worker / Manager Agent 扮演 ACP Agent**。
 
-### Agent 启动与 Prompt 模板
+### 4.1 传输层 (Transport)
+
+> 参考：https://agentclientprotocol.com/protocol/transports
+
+ACP 使用 **stdio 传输**：
+- Client (ClientNode) 启动 Agent 作为**子进程**
+- Agent 从 **stdin** 读取 JSON-RPC 消息，向 **stdout** 写入 JSON-RPC 消息
+- 消息以**换行符 (`\n`) 分隔**，单条消息**不得包含内嵌换行**
+- Agent **可**向 **stderr** 写入日志（Client 可捕获、转发或忽略）
+- Agent 的 stdout **只能**写有效 ACP 消息；Client 的 stdin **只能**写有效 ACP 消息
+
+**SDK 封装**：
+
+```typescript
+import * as acp from '@agentclientprotocol/sdk';
+import { spawn } from 'node:child_process';
+import { Readable, Writable } from 'node:stream';
+
+const proc = spawn(command, args, {
+  cwd: agentConfig.workDir,
+  stdio: ['pipe', 'pipe', 'inherit'],  // stderr 继承到 ClientNode 日志
+});
+
+const input = Writable.toWeb(proc.stdin!);
+const output = Readable.toWeb(proc.stdout!) as ReadableStream<Uint8Array>;
+const stream = acp.ndJsonStream(input, output);
+
+const connection = new acp.ClientSideConnection(
+  (agent) => new DispatchAcpClient(agent, nodeContext),
+  stream,
+);
+```
+
+| SDK 核心类 / 函数 | 角色 | 说明 |
+|-------------------|------|------|
+| `ClientSideConnection` | ClientNode 使用 | 实现 `Agent` 接口：`initialize` / `newSession` / `prompt` / `cancel` 等 |
+| `AgentSideConnection` | Agent 进程使用 | 实现 `Client` 回调：`sessionUpdate` / `requestPermission` / `fs/*` / `terminal/*` |
+| `ndJsonStream(input, output)` | 双方 | 将 stdin/stdout Web Stream 封装为 ACP `Stream` 类型 |
+| `PROTOCOL_VERSION` | 双方 | 当前协议 MAJOR 版本号（整数），用于 `initialize` 握手 |
+
+### 4.2 初始化 (Initialization)
+
+> 参考：https://agentclientprotocol.com/protocol/initialization
+
+所有通信之前，Client **必须**先调用 `initialize` 完成版本协商和能力交换。
+
+**ClientNode 发送**：
+
+```typescript
+const initResult = await connection.initialize({
+  protocolVersion: acp.PROTOCOL_VERSION,   // Client 支持的最新协议版本
+  clientCapabilities: {
+    fs: {
+      readTextFile: true,      // 提供 fs/read_text_file 方法
+      writeTextFile: true,     // 提供 fs/write_text_file 方法
+    },
+    terminal: true,            // 提供 terminal/* 方法
+  },
+  clientInfo: {
+    name: 'agentdispatch-node',
+    title: 'AgentDispatch ClientNode',
+    version: '<package version>',
+  },
+});
+```
+
+**Agent 响应**（示例）：
+
+```json
+{
+  "protocolVersion": 1,
+  "agentCapabilities": {
+    "loadSession": false,
+    "promptCapabilities": { "image": false, "audio": false, "embeddedContext": true }
+  },
+  "agentInfo": { "name": "my-worker", "version": "1.0.0" }
+}
+```
+
+**版本协商规则**：
+- Client 发送自己支持的最新版本
+- Agent 支持该版本 → 响应相同版本；否则 → 响应自己支持的最新版本
+- Client 不支持 Agent 响应的版本 → **应**关闭连接
+
+**能力规则**：
+- 所有能力均为可选，未在请求中声明的能力视为**不支持**
+- Agent **不得**调用 Client 未声明支持的方法
+
+### 4.3 会话管理 (Session)
+
+> 参考：https://agentclientprotocol.com/protocol/session-setup
+
+**创建会话**：
+
+```typescript
+const { sessionId } = await connection.newSession({
+  cwd: agentConfig.workDir,     // 绝对路径，作为 session 的文件系统上下文
+  mcpServers: [],               // 可选：MCP Server 配置列表
+});
+```
+
+`session/new` 参数：
+- `cwd`：**必须**为绝对路径，Agent **必须**以此目录为 session 上下文（不管 Agent 进程的 spawn 目录）
+- `mcpServers`：可选的 MCP Server 连接配置（stdio / HTTP / SSE 三种传输）
+
+**一个连接可支持多个并发 session**。
+
+### 4.4 Prompt Turn (核心交互循环)
+
+> 参考：https://agentclientprotocol.com/protocol/prompt-turn
+
+```
+Client (Node)                              Agent (Worker/Manager)
+    │                                            │
+    │──── session/prompt (text content) ────────→│  投递任务 prompt
+    │                                            │
+    │     ┌────────── Prompt Turn ─────────────┐ │
+    │     │                                    │ │
+    │←─── session/update (plan)               ←│ │  Agent 计划
+    │←─── session/update (agent_message_chunk) ←│ │  Agent 消息流
+    │←─── session/update (tool_call)          ←│ │  报告 tool 调用
+    │     │                                    │ │
+    │     │  [如需权限]                         │ │
+    │←─── session/request_permission          ←│ │  请求授权
+    │──── RequestPermissionResponse ───────────→│ │  授权 / 拒绝
+    │     │                                    │ │
+    │←─── session/update (tool_call_update)   ←│ │  tool 进度 / 完成
+    │     │                                    │ │
+    │     │  [如需文件系统]                     │ │
+    │←─── fs/read_text_file                   ←│ │  Agent 请求读文件
+    │──── ReadTextFileResponse ────────────────→│ │
+    │←─── fs/write_text_file                  ←│ │  Agent 请求写文件
+    │──── WriteTextFileResponse ───────────────→│ │
+    │     │                                    │ │
+    │     │  [如需终端]                         │ │
+    │←─── terminal/create                     ←│ │  Agent 请求创建终端
+    │──── CreateTerminalResponse (terminalId) ─→│ │
+    │←─── terminal/wait_for_exit              ←│ │  等待命令结束
+    │──── WaitForExitResponse ─────────────────→│ │
+    │←─── terminal/release                    ←│ │  释放终端
+    │     │                                    │ │
+    │     └────────────────────────────────────┘ │
+    │                                            │
+    │←─── PromptResponse (stopReason) ──────────│  回合结束
+    │                                            │
+    │──── (可选) session/cancel ────────────────→│  中断当前操作
+```
+
+**Stop Reasons** (Agent 终止回合的原因)：
+
+| stopReason | 含义 | AgentDispatch 处理 |
+|------------|------|-------------------|
+| `end_turn` | LLM 正常完成 | 检查任务是否已通过 CLI 提交产物 |
+| `max_tokens` | 达到 token 上限 | 记录警告；检查是否已提交产物 |
+| `max_model_requests` | 达到单轮最大请求次数 | 同上 |
+| `refused` | Agent 拒绝继续 | 标记任务失败，记录拒绝原因 |
+| `cancelled` | Client 发送了 `session/cancel` | 释放任务，状态回 pending |
+
+### 4.5 DispatchAcpClient — Client 接口实现
+
+ClientNode 需实现 ACP `Client` 接口，处理 Agent 发起的请求和通知：
+
+**Baseline 方法（必须实现）**：
+
+| Agent → Client 方法 | 类型 | ClientNode 处理 |
+|---------------------|------|----------------|
+| `session/request_permission` | Request | 按 `AgentConfig.permissionPolicy` 自动响应；Worker 默认 `auto-allow`，Manager 默认 `auto-deny` |
+| `session/update` | Notification | 分发到日志记录 (agent_message_chunk / tool_call / tool_call_update / plan) |
+
+**文件系统方法（按 ClientCapabilities 声明）**：
+
+> 参考：https://agentclientprotocol.com/protocol/file-system
+
+| Agent → Client 方法 | 能力要求 | ClientNode 处理 |
+|---------------------|---------|----------------|
+| `fs/read_text_file` | `fs.readTextFile: true` | 读取文件内容；**必须**限制在 Agent `workDir` 范围内；支持 `line` + `limit` 参数做分页读取 |
+| `fs/write_text_file` | `fs.writeTextFile: true` | 写入文件内容；**必须**限制在 Agent `workDir` 范围内；文件不存在时创建；记录文件变更审计日志 |
+
+**终端方法（按 ClientCapabilities 声明）**：
+
+> 参考：https://agentclientprotocol.com/protocol/terminals
+
+| Agent → Client 方法 | 说明 |
+|---------------------|------|
+| `terminal/create` | 在 ClientNode 环境中启动命令（command + args + env + cwd）；立即返回 `terminalId`，不等待完成 |
+| `terminal/output` | 获取终端当前输出（不阻塞）；含 `truncated` 标志和 `exitStatus`（如已退出） |
+| `terminal/wait_for_exit` | 阻塞等待终端命令结束；返回 `exitCode` + `signal` |
+| `terminal/kill` | 终止命令但**不释放**终端（仍可获取输出） |
+| `terminal/release` | 终止命令（如仍在运行）并释放所有资源；之后 terminalId 失效 |
+
+**终端安全约束**：
+- `terminal/create` 的 `cwd` **必须**限制在 Agent `workDir` 范围内
+- 环境变量 `env` 可由 ClientNode 过滤（如禁止覆盖 `PATH`）
+- 所有终端操作**必须**记录审计日志
+
+### 4.6 Tool Calls 与 Permission
+
+> 参考：https://agentclientprotocol.com/protocol/tool-calls
+
+Agent 通过 `session/update` 通知报告 tool call 执行：
+
+**Tool Call 种类 (kind)**：`read` | `edit` | `delete` | `move` | `search` | `execute` | `think` | `fetch` | `other`
+
+**Tool Call 状态 (status)**：`pending` → `in_progress` → `completed` | `error`
+
+**Permission 流程**：Agent 在执行敏感操作前**可**通过 `session/request_permission` 请求授权。ClientNode 按配置策略响应：
+
+| `permissionPolicy` 值 | 行为 |
+|-----------------------|------|
+| `auto-allow` | 选择第一个 `kind: "allow_once"` 的选项 |
+| `auto-deny` | 选择第一个 `kind: "reject_once"` 的选项 |
+| `prompt` | 记录日志 + 选择 `auto-allow`（v1.0 暂不支持交互式审批） |
+
+当 prompt turn 被取消 (`session/cancel`) 时，Client **必须**对所有 pending 的 permission 请求响应 `outcome: "cancelled"`。
+
+### 4.7 Worker 启动与 Prompt 投递
 
 Worker 启动时，ClientNode Core 执行以下流程：
 
 ```
-1. 读取模板文件: AgentConfig.promptTemplate 或默认 {workDir}/templates/worker-prompt.md
-2. 参数化拼装: 替换 {{variable}} 为运行时值（任务信息、Agent 信息、CLI 命令等）
-3. 校验必要变量: 检查 task.id / task.description / artifacts.instructions / cli.reference / agent.workDir
-4. ACP 启动 Worker 进程: 将拼装后的完整 prompt 作为启动参数传入
+1. spawn Worker 子进程 (AgentConfig.command)
+   └─ stdio: ['pipe', 'pipe', 'inherit']
+2. 建立 ACP 连接: ndJsonStream + ClientSideConnection
+3. initialize → 协商协议版本 + 声明 ClientCapabilities (fs + terminal)
+4. newSession → 创建会话 (cwd = agentConfig.workDir)，获取 sessionId
+5. 拼装 prompt:
+   a. 读取模板文件: AgentConfig.promptTemplate 或默认 worker-prompt.md
+   b. 替换 {{variable}} 为运行时值（任务信息、Agent 信息、CLI 命令等）
+   c. 校验必要变量 (task.id / task.description / artifacts.instructions / cli.reference / agent.workDir)
+6. session/prompt → 将拼装后的 prompt 作为 text content 发送
+7. 处理 session/update 通知 → 记录日志、处理 tool calls / permissions
+8. 等待 PromptResponse → 根据 stopReason 处理结果
+```
+
+**Prompt 内容格式** (遵循 ACP ContentBlock 规范)：
+
+```typescript
+await connection.prompt({
+  sessionId,
+  prompt: [
+    { type: 'text', text: assembledPromptMarkdown },
+  ],
+});
 ```
 
 **模板文件**：独立 Markdown 文件，支持 `{{variable}}` 占位符。变量列表和拼装规则详见 `config-spec.md` → Worker Prompt 模板。
@@ -325,6 +567,56 @@ Worker 启动时，ClientNode Core 执行以下流程：
 - 当前任务的完整信息
 - 任务产物格式要求（zip + result.json）
 - 可使用的 `dispatch worker` CLI 命令完整参考
+
+### 4.8 Worker 的 CLI 调用路径
+
+Worker Agent 通过 CLI 命令进行结构化任务操作（进度上报、产物提交、失败报告）。
+CLI 命令的执行有两条等价路径，都最终到达 ClientNode Core：
+
+**路径 A — Agent 直接 shell exec（推荐）**：
+```
+Worker 进程 → shell exec `dispatch worker progress <task-id> ...`
+  → CLI 进程 → IPC → Node Core → HTTP → Server
+```
+
+**路径 B — Agent 通过 ACP terminal/create**：
+```
+Worker 进程 → ACP terminal/create { command: "dispatch", args: ["worker","progress",...] }
+  → ClientNode 创建终端执行命令
+  → CLI 进程 → IPC → Node Core → HTTP → Server
+```
+
+两条路径功能等价。路径 A 更简单且兼容所有 ACP Agent（Agent 只需有 shell 访问权）；路径 B 对 ClientNode 有更好的可观测性（终端输出可嵌入 tool call 展示）。
+
+**v1.0 默认：路径 A**，prompt 模板中指导 Worker 直接 shell exec CLI 命令。
+
+**Manager Agent 仅使用 ACP 通道**：Manager 通过 `session/prompt` 接收分发咨询请求，通过 `PromptResponse` 返回建议，不使用 CLI。
+
+### 4.9 ACP 错误处理
+
+| 场景 | 处理 |
+|------|------|
+| Agent 进程启动失败 (spawn error) | 抛出 `AGENT_START_FAILED`，记录 stderr |
+| `initialize` 失败 (版本不兼容) | 关闭连接，终止进程，抛出 `AGENT_START_FAILED` |
+| `session/prompt` → `stopReason: "end_turn"` | 正常完成；检查任务是否已通过 CLI 提交产物 |
+| `session/prompt` → `stopReason: "cancelled"` | 释放任务，状态回 pending |
+| `session/prompt` → `stopReason: "refused"` | 标记任务失败，记录拒绝原因 |
+| `session/prompt` → `stopReason: "max_tokens"` | 记录警告；检查任务是否已通过 CLI 提交产物 |
+| `session/prompt` → `stopReason: "max_model_requests"` | 同 max_tokens |
+| Agent 进程意外退出 (非 0 exit code) | 检查任务状态：已 complete → 正常；否则 → 释放任务 |
+| `connection.signal` aborted | 连接断开，同进程退出处理 |
+
+### 4.10 ACP 扩展 (Extensibility)
+
+> 参考：https://agentclientprotocol.com/protocol/extensibility
+
+ACP 支持通过 `_` 前缀添加自定义方法和通知，通过 `_meta` 字段添加自定义数据。
+
+**v1.0 不使用扩展方法**。所有 AgentDispatch 特有操作通过 CLI 通道完成。
+
+未来可考虑的扩展：
+- `_dispatch/taskStatus` — Agent 通过 ACP 直接查询任务状态
+- `_dispatch/submitArtifact` — Agent 通过 ACP 直接提交产物
 
 ---
 
