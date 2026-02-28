@@ -1,10 +1,10 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../api/client.js';
-import type { CreateTaskInput } from '../types.js';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/api/client";
+import type { CreateTaskInput } from "@/types";
 
 export function useTasks() {
   return useQuery({
-    queryKey: ['tasks'],
+    queryKey: ["tasks"],
     queryFn: () => api.tasks.list(),
     refetchInterval: 5000,
   });
@@ -12,7 +12,7 @@ export function useTasks() {
 
 export function useTask(id: string) {
   return useQuery({
-    queryKey: ['tasks', id],
+    queryKey: ["tasks", id],
     queryFn: () => api.tasks.get(id),
     refetchInterval: 3000,
   });
@@ -23,7 +23,7 @@ export function useCreateTask() {
   return useMutation({
     mutationFn: (input: CreateTaskInput) => api.tasks.create(input),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      void queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },
   });
 }

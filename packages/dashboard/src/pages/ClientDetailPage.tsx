@@ -1,70 +1,173 @@
-import type React from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { useClient } from '../hooks/use-clients.js';
+import { useTranslation } from "react-i18next";
+import { useParams, Link } from "react-router-dom";
+import { ArrowLeft, Monitor, Clock } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/common/status-badge";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { useClient } from "@/hooks/use-clients";
 
-export function ClientDetailPage(): React.ReactElement {
-  const { id = '' } = useParams<{ id: string }>();
+export function ClientDetailPage() {
+  const { t } = useTranslation();
+  const { id = "" } = useParams<{ id: string }>();
   const { data: client, isLoading, error } = useClient(id);
 
-  if (isLoading) return <div className="loading">Loading client...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
-  if (!client) return <div className="error">Client not found</div>;
+  if (isLoading) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-[200px] rounded-xl" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center py-16 text-destructive">
+        {t("common.error")}: {error.message}
+      </div>
+    );
+  }
+
+  if (!client) {
+    return (
+      <div className="flex flex-col items-center py-16 text-center">
+        <p className="text-sm text-muted-foreground">Client not found</p>
+        <Link to="/clients" className="mt-4">
+          <Button variant="outline" size="sm">
+            <ArrowLeft className="mr-2 h-3.5 w-3.5" />
+            {t("clients.detail.backToClients")}
+          </Button>
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <>
-      <div className="page-header">
-        <h1>{client.name}</h1>
-        <Link to="/clients" className="btn">Back to Clients</Link>
-      </div>
-
-      <div className="card">
-        <div className="detail-grid">
-          <span className="detail-label">ID</span>
-          <span className="detail-value" style={{ fontFamily: 'monospace' }}>{client.id}</span>
-          <span className="detail-label">Status</span>
-          <span className="detail-value"><span className={`badge badge-${client.status}`}>{client.status}</span></span>
-          <span className="detail-label">Host</span>
-          <span className="detail-value">{client.host}</span>
-          <span className="detail-label">Dispatch Mode</span>
-          <span className="detail-value">{client.dispatchMode}</span>
-          <span className="detail-label">Tags</span>
-          <span className="detail-value"><div className="tags">{client.tags.map((t) => <span key={t} className="tag">{t}</span>)}</div></span>
-          <span className="detail-label">Registered</span>
-          <span className="detail-value">{new Date(client.registeredAt).toLocaleString()}</span>
-          <span className="detail-label">Last Heartbeat</span>
-          <span className="detail-value">{new Date(client.lastHeartbeat).toLocaleString()}</span>
+    <div className="mx-auto max-w-3xl space-y-6">
+      <div>
+        <Link to="/clients" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="h-3.5 w-3.5" />
+          {t("clients.detail.backToClients")}
+        </Link>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+            <Monitor className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">{client.name}</h2>
+            <StatusBadge status={client.status} />
+          </div>
         </div>
       </div>
 
-      <div style={{ marginTop: 24 }}>
-        <h3 style={{ marginBottom: 12 }}>Agents ({client.agents.length})</h3>
-        {client.agents.length === 0 ? (
-          <div className="card" style={{ color: 'var(--text-muted)' }}>No agents registered</div>
-        ) : (
-          <table className="table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Current Task</th>
-                <th>Capabilities</th>
-              </tr>
-            </thead>
-            <tbody>
-              {client.agents.map((agent) => (
-                <tr key={agent.id}>
-                  <td style={{ fontFamily: 'monospace' }}>{agent.id}</td>
-                  <td>{agent.type}</td>
-                  <td><span className={`badge badge-${agent.status === 'idle' ? 'online' : agent.status === 'busy' ? 'busy' : 'offline'}`}>{agent.status}</span></td>
-                  <td>{agent.currentTaskId ? <Link to={`/tasks/${agent.currentTaskId}`}>{agent.currentTaskId.slice(0, 8)}...</Link> : '—'}</td>
-                  <td><div className="tags">{agent.capabilities.map((c) => <span key={c} className="tag">{c}</span>)}</div></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </>
+      {/* Info card */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <InfoRow label="ID">
+              <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{client.id}</code>
+            </InfoRow>
+            <InfoRow label={t("clients.host")}>
+              <span className="text-sm">{client.host}</span>
+            </InfoRow>
+            <InfoRow label={t("clients.dispatchMode")}>
+              <Badge variant="secondary" className="font-normal capitalize">{client.dispatchMode}</Badge>
+            </InfoRow>
+            <InfoRow label="Tags">
+              <div className="flex flex-wrap gap-1">
+                {client.tags.length > 0 ? client.tags.map((tag) => (
+                  <Badge key={tag} variant="secondary" className="font-normal text-xs">{tag}</Badge>
+                )) : <span className="text-xs text-muted-foreground">—</span>}
+              </div>
+            </InfoRow>
+            <Separator className="col-span-full" />
+            <InfoRow label={t("clients.detail.registered")}>
+              <div className="flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-sm">{new Date(client.registeredAt).toLocaleString()}</span>
+              </div>
+            </InfoRow>
+            <InfoRow label={t("clients.lastHeartbeat")}>
+              <div className="flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-sm">{new Date(client.lastHeartbeat).toLocaleString()}</span>
+              </div>
+            </InfoRow>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Agents */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("clients.agents")} ({client.agents.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {client.agents.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("clients.detail.noAgents")}</p>
+          ) : (
+            <div className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("clients.detail.agentId")}</TableHead>
+                    <TableHead>{t("clients.detail.agentType")}</TableHead>
+                    <TableHead>{t("clients.detail.agentStatus")}</TableHead>
+                    <TableHead>{t("clients.detail.currentTask")}</TableHead>
+                    <TableHead>{t("clients.detail.capabilities")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {client.agents.map((agent) => (
+                    <TableRow key={agent.id}>
+                      <TableCell>
+                        <code className="text-xs font-mono">{agent.id}</code>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="capitalize">{agent.type}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge status={agent.status} />
+                      </TableCell>
+                      <TableCell>
+                        {agent.currentTaskId ? (
+                          <Link to={`/tasks/${agent.currentTaskId}`} className="text-sm hover:underline">
+                            {agent.currentTaskId.slice(0, 8)}...
+                          </Link>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {agent.capabilities.map((c) => (
+                            <Badge key={c} variant="secondary" className="font-normal text-xs">{c}</Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-xs font-medium text-muted-foreground mb-1">{label}</p>
+      <div>{children}</div>
+    </div>
   );
 }

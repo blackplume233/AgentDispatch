@@ -1,106 +1,212 @@
-import type React from 'react';
-import { useParams, Link } from 'react-router-dom';
-import { useTask } from '../hooks/use-tasks.js';
+import { useTranslation } from "react-i18next";
+import { useParams, Link } from "react-router-dom";
+import { ArrowLeft, FileArchive, FileJson, Clock, User } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
+import { StatusBadge, PriorityBadge } from "@/components/common/status-badge";
+import { useTask } from "@/hooks/use-tasks";
 
-export function TaskDetailPage(): React.ReactElement {
-  const { id = '' } = useParams<{ id: string }>();
+export function TaskDetailPage() {
+  const { t } = useTranslation();
+  const { id = "" } = useParams<{ id: string }>();
   const { data: task, isLoading, error } = useTask(id);
 
-  if (isLoading) return <div className="loading">Loading task...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
-  if (!task) return <div className="error">Task not found</div>;
+  if (isLoading) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-[200px] rounded-xl" />
+        <Skeleton className="h-[120px] rounded-xl" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center py-16 text-destructive">
+        {t("common.error")}: {error.message}
+      </div>
+    );
+  }
+
+  if (!task) {
+    return (
+      <div className="flex flex-col items-center py-16 text-center">
+        <p className="text-sm text-muted-foreground">Task not found</p>
+        <Link to="/tasks" className="mt-4">
+          <Button variant="outline" size="sm">
+            <ArrowLeft className="mr-2 h-3.5 w-3.5" />
+            {t("tasks.detail.backToTasks")}
+          </Button>
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <>
-      <div className="page-header">
-        <h1>{task.title}</h1>
-        <Link to="/tasks" className="btn">Back to Tasks</Link>
+    <div className="mx-auto max-w-3xl space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <Link to="/tasks" className="mb-2 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-3.5 w-3.5" />
+            {t("tasks.detail.backToTasks")}
+          </Link>
+          <h2 className="text-2xl font-bold tracking-tight">{task.title}</h2>
+        </div>
       </div>
 
-      <div className="card">
-        <div className="detail-grid">
-          <span className="detail-label">ID</span>
-          <span className="detail-value" style={{ fontFamily: 'monospace' }}>{task.id}</span>
+      {/* Main info card */}
+      <Card>
+        <CardContent className="p-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <InfoRow label="ID">
+              <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{task.id}</code>
+            </InfoRow>
+            <InfoRow label="Status">
+              <StatusBadge status={task.status} />
+            </InfoRow>
+            <InfoRow label="Priority">
+              <PriorityBadge priority={task.priority} />
+            </InfoRow>
+            <InfoRow label="Tags">
+              <div className="flex flex-wrap gap-1">
+                {task.tags.length > 0 ? task.tags.map((tag) => (
+                  <Badge key={tag} variant="secondary" className="font-normal text-xs">{tag}</Badge>
+                )) : <span className="text-muted-foreground text-xs">—</span>}
+              </div>
+            </InfoRow>
 
-          <span className="detail-label">Status</span>
-          <span className="detail-value"><span className={`badge badge-${task.status}`}>{task.status}</span></span>
-
-          <span className="detail-label">Priority</span>
-          <span className="detail-value">{task.priority}</span>
-
-          <span className="detail-label">Tags</span>
-          <span className="detail-value">
-            <div className="tags">{task.tags.map((t) => <span key={t} className="tag">{t}</span>)}</div>
-          </span>
-
-          {task.progress !== undefined && (
-            <>
-              <span className="detail-label">Progress</span>
-              <span className="detail-value">
-                {task.progress}%
-                <div className="progress-bar" style={{ maxWidth: 300 }}>
-                  <div className="progress-fill" style={{ width: `${task.progress}%` }} />
+            {task.progress != null && (
+              <InfoRow label={t("tasks.detail.progress")} fullWidth>
+                <div className="flex items-center gap-3">
+                  <Progress value={task.progress} className="h-2 flex-1" />
+                  <span className="text-sm font-medium">{task.progress}%</span>
                 </div>
-                {task.progressMessage && <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>{task.progressMessage}</div>}
-              </span>
-            </>
-          )}
+                {task.progressMessage && (
+                  <p className="mt-1 text-xs text-muted-foreground">{task.progressMessage}</p>
+                )}
+              </InfoRow>
+            )}
 
-          {task.claimedBy && (
-            <>
-              <span className="detail-label">Claimed By</span>
-              <span className="detail-value">Client: {task.claimedBy.clientId} / Agent: {task.claimedBy.agentId}</span>
-            </>
-          )}
+            {task.claimedBy && (
+              <InfoRow label={t("tasks.detail.claimedBy")} fullWidth>
+                <div className="flex items-center gap-2">
+                  <User className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm">Client: {task.claimedBy.clientId} / Agent: {task.claimedBy.agentId}</span>
+                </div>
+              </InfoRow>
+            )}
 
-          <span className="detail-label">Created</span>
-          <span className="detail-value">{new Date(task.createdAt).toLocaleString()}</span>
+            <Separator className="col-span-full" />
 
-          <span className="detail-label">Updated</span>
-          <span className="detail-value">{new Date(task.updatedAt).toLocaleString()}</span>
-
-          {task.completedAt && (
-            <>
-              <span className="detail-label">Completed</span>
-              <span className="detail-value">{new Date(task.completedAt).toLocaleString()}</span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {task.description && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h3 style={{ marginBottom: 8 }}>Description</h3>
-          <div style={{ whiteSpace: 'pre-wrap' }}>{task.description}</div>
-        </div>
-      )}
-
-      {task.artifacts && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h3 style={{ marginBottom: 8 }}>Artifacts</h3>
-          <div className="detail-grid">
-            <span className="detail-label">Zip File</span>
-            <span className="detail-value">{task.artifacts.zipFile}</span>
-            <span className="detail-label">Size</span>
-            <span className="detail-value">{(task.artifacts.zipSizeBytes / 1024).toFixed(1)} KB</span>
-            <span className="detail-label">Hash</span>
-            <span className="detail-value" style={{ fontFamily: 'monospace', fontSize: 12 }}>{task.artifacts.zipHash}</span>
-            <span className="detail-label">Summary</span>
-            <span className="detail-value">{task.artifacts.resultJson.summary}</span>
-            <span className="detail-label">Success</span>
-            <span className="detail-value">{task.artifacts.resultJson.success ? 'Yes' : 'No'}</span>
+            <InfoRow label="Created">
+              <div className="flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-sm">{new Date(task.createdAt).toLocaleString()}</span>
+              </div>
+            </InfoRow>
+            <InfoRow label="Updated">
+              <div className="flex items-center gap-2">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-sm">{new Date(task.updatedAt).toLocaleString()}</span>
+              </div>
+            </InfoRow>
+            {task.completedAt && (
+              <InfoRow label="Completed">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                  <span className="text-sm">{new Date(task.completedAt).toLocaleString()}</span>
+                </div>
+              </InfoRow>
+            )}
           </div>
-        </div>
+        </CardContent>
+      </Card>
+
+      {/* Description */}
+      {task.description && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("tasks.detail.description")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="whitespace-pre-wrap text-sm">{task.description}</div>
+          </CardContent>
+        </Card>
       )}
 
-      {task.metadata && Object.keys(task.metadata).length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h3 style={{ marginBottom: 8 }}>Metadata</h3>
-          <pre style={{ fontSize: 12, background: 'var(--bg)', padding: 12, borderRadius: 6, overflow: 'auto' }}>
-            {JSON.stringify(task.metadata, null, 2)}
-          </pre>
-        </div>
+      {/* Artifacts */}
+      {task.artifacts && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileArchive className="h-4 w-4" />
+              {t("tasks.detail.artifacts")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <InfoRow label={t("tasks.detail.zipFile")}>
+              <span className="text-sm font-mono">{task.artifacts.zipFile}</span>
+            </InfoRow>
+            <Separator />
+            <InfoRow label={t("tasks.detail.size")}>
+              <span className="text-sm">{(task.artifacts.zipSizeBytes / 1024).toFixed(1)} KB</span>
+            </InfoRow>
+            <Separator />
+            <InfoRow label={t("tasks.detail.hash")}>
+              <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono">{task.artifacts.zipHash}</code>
+            </InfoRow>
+            <Separator />
+            <InfoRow label={t("tasks.detail.summary")}>
+              <span className="text-sm">{task.artifacts.resultJson.summary}</span>
+            </InfoRow>
+            <Separator />
+            <InfoRow label={t("tasks.detail.success")}>
+              <Badge variant={task.artifacts.resultJson.success ? "default" : "destructive"}>
+                {task.artifacts.resultJson.success ? t("tasks.detail.yes") : t("tasks.detail.no")}
+              </Badge>
+            </InfoRow>
+          </CardContent>
+        </Card>
       )}
-    </>
+
+      {/* Metadata */}
+      {task.metadata && Object.keys(task.metadata).length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <FileJson className="h-4 w-4" />
+              {t("tasks.detail.metadata")}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="rounded-lg bg-muted p-4 text-xs font-mono overflow-auto">
+              {JSON.stringify(task.metadata, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function InfoRow({
+  label,
+  children,
+  fullWidth,
+}: {
+  label: string;
+  children: React.ReactNode;
+  fullWidth?: boolean;
+}) {
+  return (
+    <div className={fullWidth ? "col-span-full" : ""}>
+      <p className="text-xs font-medium text-muted-foreground mb-1">{label}</p>
+      <div>{children}</div>
+    </div>
   );
 }

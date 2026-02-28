@@ -8,13 +8,15 @@
 
 | Layer | Technology | Notes |
 |-------|-----------|-------|
-| Framework | React 18+ | SPA，Vite 构建 |
-| UI Library | shadcn/ui | 基于 Radix UI + Tailwind CSS |
-| Styling | Tailwind CSS | utility-first |
-| State | TanStack Query (React Query) | 服务端状态管理 |
-| Routing | React Router / TanStack Router | TBD |
-| TypeScript | strict mode | 共享类型来自 `@shared` |
-| Testing | Vitest + Testing Library | 组件测试 |
+| Framework | React 19 | SPA, Vite 6 构建 |
+| UI Library | shadcn/ui (new-york) | 基于 Radix UI + Tailwind CSS |
+| Styling | Tailwind CSS v4 | utility-first, oklch design tokens |
+| State | TanStack Query (React Query 5) | 服务端状态管理 |
+| Routing | React Router v7 | |
+| Icons | Lucide React | |
+| i18n | react-i18next | en + zh-CN |
+| TypeScript | strict mode | 共享类型来自 `@/types` |
+| Testing | Vitest + Playwright | 组件 + E2E 测试 |
 
 ---
 
@@ -23,160 +25,135 @@
 ```
 packages/dashboard/
 ├── index.html
-├── vite.config.ts
-├── tailwind.config.ts
+├── vite.config.ts              # Vite + Tailwind + @ alias
+├── tsconfig.json               # paths: @/* -> src/*
 ├── src/
-│   ├── main.tsx                    # 入口
-│   ├── App.tsx                     # 根组件 + 路由
-│   ├── components/                 # 通用组件
-│   │   ├── ui/                     # shadcn/ui 组件（自动生成）
-│   │   ├── layout/                 # 布局组件
-│   │   │   ├── Sidebar.tsx
-│   │   │   ├── Header.tsx
-│   │   │   └── Layout.tsx
-│   │   └── common/                 # 项目通用组件
-│   │       ├── StatusBadge.tsx
-│   │       └── LoadingSpinner.tsx
-│   ├── features/                   # 功能模块
-│   │   ├── tasks/                  # 任务管理
-│   │   │   ├── TaskBoard.tsx       # 看板视图
-│   │   │   ├── TaskCard.tsx
-│   │   │   ├── TaskDetail.tsx
-│   │   │   ├── TaskCreateDialog.tsx
-│   │   │   └── hooks/
-│   │   │       └── useTasks.ts
-│   │   └── clients/                # Client 管理
-│   │       ├── ClientList.tsx
-│   │       ├── ClientDetail.tsx
-│   │       ├── AgentStatusCard.tsx
-│   │       └── hooks/
-│   │           └── useClients.ts
-│   ├── api/                        # API 调用层
-│   │   ├── client.ts               # HTTP client (fetch/axios)
-│   │   ├── tasks.ts                # Task API
-│   │   └── clients.ts              # Client API
-│   ├── types/                      # 前端特有类型
-│   │   └── index.ts
-│   ├── lib/                        # 工具函数
-│   │   └── utils.ts
-│   └── styles/
-│       └── globals.css
+│   ├── main.tsx                # 入口
+│   ├── App.tsx                 # 根组件 + 路由
+│   ├── styles.css              # Tailwind + oklch theme tokens
+│   ├── types.ts                # 数据类型
+│   ├── api/
+│   │   └── client.ts           # REST API client
+│   ├── hooks/
+│   │   ├── use-tasks.ts        # Task 数据 hooks
+│   │   ├── use-clients.ts      # Client 数据 hooks
+│   │   └── use-theme.ts        # 暗色/亮色主题切换
+│   ├── i18n/
+│   │   ├── index.ts            # i18next 初始化
+│   │   ├── en.ts               # 英文翻译
+│   │   └── zh-CN.ts            # 中文翻译
+│   ├── lib/
+│   │   └── utils.ts            # cn() 工具函数
+│   ├── components/
+│   │   ├── ui/                 # shadcn/ui 基础组件
+│   │   │   ├── button.tsx
+│   │   │   ├── card.tsx
+│   │   │   ├── badge.tsx
+│   │   │   ├── input.tsx
+│   │   │   ├── textarea.tsx
+│   │   │   ├── table.tsx
+│   │   │   ├── dialog.tsx
+│   │   │   ├── dropdown-menu.tsx
+│   │   │   ├── select.tsx
+│   │   │   ├── label.tsx
+│   │   │   ├── tabs.tsx
+│   │   │   ├── separator.tsx
+│   │   │   ├── skeleton.tsx
+│   │   │   └── progress.tsx
+│   │   ├── layout/
+│   │   │   ├── shell.tsx       # App Shell (Sidebar + TopBar + Main)
+│   │   │   ├── app-sidebar.tsx # 导航侧边栏
+│   │   │   └── top-bar.tsx     # 顶部栏
+│   │   ├── common/
+│   │   │   └── status-badge.tsx # 状态/优先级 Badge
+│   │   └── CreateTaskDialog.tsx # 创建任务对话框
+│   └── pages/
+│       ├── CommandCenter.tsx    # 首页 — 统计卡片 + 近期任务
+│       ├── TasksPage.tsx       # 任务看板/表格 + 筛选
+│       ├── TaskDetailPage.tsx  # 任务详情
+│       ├── ClientsPage.tsx     # 客户端列表
+│       ├── ClientDetailPage.tsx # 客户端详情 + Agent 表
+│       ├── EventsPage.tsx      # 事件流
+│       ├── SettingsPage.tsx    # 系统设置
+│       └── NotFoundPage.tsx    # 404 页面
 └── tests/
 ```
+
+---
+
+## Pages & Routes
+
+| 路由 | 页面组件 | 描述 |
+|------|---------|------|
+| `/` | CommandCenter | 仪表盘首页 (统计卡片 + 最近任务 + 客户端概览) |
+| `/tasks` | TasksPage | 看板/表格视图, Badge 状态筛选, 搜索 |
+| `/tasks/:id` | TaskDetailPage | 任务详情 (Info Card + 描述 + 产物 + 元数据) |
+| `/clients` | ClientsPage | 客户端表格, 搜索 |
+| `/clients/:id` | ClientDetailPage | 客户端详情 + Agent 列表 |
+| `/events` | EventsPage | 事件时间线, 分类筛选 |
+| `/settings` | SettingsPage | 连接状态, 主题切换, 任务/客户端概览 |
+| `*` | NotFoundPage | 404 |
+
+---
+
+## Layout Architecture
+
+```
+Shell
+├── AppSidebar          # 固定 w-56 侧边栏, 导航链接, 语言切换
+├── TopBar              # h-14 顶部栏, 品牌名, 暗色模式切换, 连接状态
+└── Main                # flex-1 overflow-y-auto p-6, 页面内容
+```
+
+**Provider 嵌套顺序:**
+```
+QueryClientProvider → BrowserRouter → Shell → Routes
+```
+
+---
+
+## Design Tokens
+
+使用 oklch 色彩空间 CSS 变量，支持亮色/暗色模式:
+- `--background`, `--foreground`, `--primary`, `--secondary`, `--muted`, `--accent`, `--destructive`
+- `--card`, `--popover`, `--border`, `--input`, `--ring`
+- `--sidebar-*` (侧边栏专属)
+- `--chart-1` ~ `--chart-5`
+- `--radius` (圆角基础值)
+
+暗色模式通过 `.dark` class 在 `<html>` 上切换。
 
 ---
 
 ## Coding Standards
 
 ### 组件规范
-
-- 使用函数组件 + Hooks，禁止 Class 组件
-- 每个组件一个文件，文件名与组件名一致 (PascalCase)
-- Props 使用 `interface` 定义，命名为 `{ComponentName}Props`
-- 事件处理函数命名：`on{Event}` (props), `handle{Event}` (内部)
+- 函数组件 + Hooks，禁止 Class 组件
+- 路径别名 `@/` 引用 (`@/components/ui/button`)
+- 使用 `cn()` 工具合并 Tailwind class
+- CVA (class-variance-authority) 定义组件变体
 
 ### 文件命名
-
 | 类型 | 风格 | 示例 |
 |------|------|------|
-| 组件文件 | PascalCase | `TaskBoard.tsx` |
-| Hook 文件 | camelCase | `useTasks.ts` |
-| 工具文件 | camelCase | `formatDate.ts` |
-| 类型文件 | camelCase | `index.ts` |
+| 页面组件 | PascalCase | `TasksPage.tsx` |
+| 布局组件 | kebab-case | `app-sidebar.tsx` |
+| Hook 文件 | kebab-case | `use-tasks.ts` |
+| UI 组件 | kebab-case | `button.tsx` |
 
----
-
-## Component Guidelines
-
-### shadcn/ui 使用
-
-- 通过 `npx shadcn-ui@latest add <component>` 添加组件
-- 自动生成到 `src/components/ui/`，可按需修改
-- 不要从 npm 直接安装 shadcn/ui
-
-### 组件层级
-
-```
-页面组件 (Pages)
-  └── 功能组件 (Features)
-        └── 通用组件 (Common)
-              └── UI 基础组件 (shadcn/ui)
-```
-
-### 状态管理策略
-
-| 状态类型 | 方案 | 示例 |
-|----------|------|------|
-| 服务端状态 | TanStack Query | 任务列表、Client 状态 |
-| UI 局部状态 | useState | 对话框开关、表单输入 |
-| 全局 UI 状态 | Context / Zustand | 主题、侧边栏折叠 |
-
----
-
-## Dashboard 页面规划
-
-| 页面 | 路由 | 描述 |
-|------|------|------|
-| 任务看板 | `/tasks` | Kanban 视图，按状态分列 |
-| 任务详情 | `/tasks/:id` | 任务信息、进度、日志 |
-| Client 列表 | `/clients` | 所有注册 Client 及状态 |
-| Client 详情 | `/clients/:id` | Agent 列表、负载、任务 |
-| 创建任务 | `/tasks/new` | 任务创建表单 |
-
----
-
-## Type Safety
-
-### 类型来源
-
-- 数据类型（Task, Client, Agent）从 `@shared/types` 导入
-- API 响应类型在 `src/api/` 中定义
-- 组件 Props 在组件文件内定义
-
-### 禁止
-
-- `any` 类型
-- `@ts-ignore` / `@ts-expect-error`（除非有充分理由并加注释）
-- 未类型化的 API 响应
-
----
-
-## Data Fetching Pattern
-
-```typescript
-// api/tasks.ts
-import { apiClient } from './client';
-import type { Task, CreateTaskDTO } from '@shared/types';
-
-export const taskApi = {
-  list: (params?: TaskQueryParams) =>
-    apiClient.get<Task[]>('/tasks', { params }),
-  
-  getById: (id: string) =>
-    apiClient.get<Task>(`/tasks/${id}`),
-  
-  create: (dto: CreateTaskDTO) =>
-    apiClient.post<Task>('/tasks', dto),
-};
-
-// features/tasks/hooks/useTasks.ts
-import { useQuery } from '@tanstack/react-query';
-import { taskApi } from '@/api/tasks';
-
-export function useTasks(params?: TaskQueryParams) {
-  return useQuery({
-    queryKey: ['tasks', params],
-    queryFn: () => taskApi.list(params),
-    refetchInterval: 10_000,  // 与 Server 轮询间隔对齐
-  });
-}
-```
+### 状态管理
+| 状态类型 | 方案 |
+|----------|------|
+| 服务端状态 | TanStack Query |
+| UI 局部状态 | useState |
+| 主题 | useTheme hook + localStorage |
+| i18n | react-i18next |
 
 ---
 
 ## Testing
 
-- 使用 Vitest + React Testing Library
-- 组件测试关注用户交互，不测实现细节
-- Mock API 层，不 mock hooks 内部
-- 每个功能组件配套测试文件
+- Vitest — 单元 + 组件测试
+- Playwright — E2E 测试
+- 关注用户交互，不测实现细节
+- Mock API 层

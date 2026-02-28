@@ -1,46 +1,113 @@
-import type React from 'react';
-import { Link } from 'react-router-dom';
-import { useClients } from '../hooks/use-clients.js';
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
+import { Search, Monitor } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/common/status-badge";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { useClients } from "@/hooks/use-clients";
 
-export function ClientsPage(): React.ReactElement {
+export function ClientsPage() {
+  const { t } = useTranslation();
   const { data: clients, isLoading, error } = useClients();
+  const [search, setSearch] = useState("");
 
-  if (isLoading) return <div className="loading">Loading clients...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  const filtered = useMemo(() => {
+    let result = clients ?? [];
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.host.toLowerCase().includes(q) ||
+          c.tags.some((tag) => tag.toLowerCase().includes(q)),
+      );
+    }
+    return result;
+  }, [clients, search]);
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center py-16 text-destructive">
+        {t("common.error")}: {error.message}
+      </div>
+    );
+  }
 
   return (
-    <>
-      <div className="page-header">
-        <h1>Clients</h1>
+    <div className="mx-auto max-w-7xl space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">{t("clients.title")}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t("clients.subtitle")}</p>
       </div>
 
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Status</th>
-            <th>Host</th>
-            <th>Dispatch Mode</th>
-            <th>Agents</th>
-            <th>Last Heartbeat</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(clients ?? []).map((client) => (
-            <tr key={client.id}>
-              <td><Link to={`/clients/${client.id}`}>{client.name}</Link></td>
-              <td><span className={`badge badge-${client.status}`}>{client.status}</span></td>
-              <td>{client.host}</td>
-              <td>{client.dispatchMode}</td>
-              <td>{client.agents.length}</td>
-              <td>{new Date(client.lastHeartbeat).toLocaleString()}</td>
-            </tr>
+      <div className="relative w-full max-w-xs">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder={t("clients.searchPlaceholder")}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9"
+        />
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 rounded-xl" />
           ))}
-          {(clients ?? []).length === 0 && (
-            <tr><td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No clients registered</td></tr>
-          )}
-        </tbody>
-      </table>
-    </>
+        </div>
+      ) : filtered.length === 0 && (clients ?? []).length === 0 ? (
+        <div className="flex flex-col items-center py-16 text-center">
+          <Monitor className="mb-3 h-10 w-10 text-muted-foreground/40" />
+          <p className="text-sm font-medium">{t("clients.noClients")}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t("clients.noClientsHint")}</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="flex flex-col items-center py-8 text-center">
+          <Monitor className="mb-2 h-8 w-8 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">{t("clients.noMatch")}</p>
+        </div>
+      ) : (
+        <div className="rounded-lg border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("clients.name")}</TableHead>
+                <TableHead>{t("clients.status")}</TableHead>
+                <TableHead>{t("clients.host")}</TableHead>
+                <TableHead>{t("clients.dispatchMode")}</TableHead>
+                <TableHead>{t("clients.agents")}</TableHead>
+                <TableHead>{t("clients.lastHeartbeat")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((client) => (
+                <TableRow key={client.id} className="cursor-pointer">
+                  <TableCell>
+                    <Link to={`/clients/${client.id}`} className="font-medium hover:underline">
+                      {client.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={client.status} />
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">{client.host}</TableCell>
+                  <TableCell>
+                    <Badge variant="secondary" className="font-normal capitalize">{client.dispatchMode}</Badge>
+                  </TableCell>
+                  <TableCell>{client.agents.length}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {new Date(client.lastHeartbeat).toLocaleString()}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
   );
 }

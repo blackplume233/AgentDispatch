@@ -1,11 +1,14 @@
-import type React from 'react';
-import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Layout } from './components/Layout.js';
-import { TasksPage } from './pages/TasksPage.js';
-import { TaskDetailPage } from './pages/TaskDetailPage.js';
-import { ClientsPage } from './pages/ClientsPage.js';
-import { ClientDetailPage } from './pages/ClientDetailPage.js';
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Shell } from "@/components/layout/shell";
+import { CommandCenter } from "@/pages/CommandCenter";
+import { TasksPage } from "@/pages/TasksPage";
+import { TaskDetailPage } from "@/pages/TaskDetailPage";
+import { ClientsPage } from "@/pages/ClientsPage";
+import { ClientDetailPage } from "@/pages/ClientDetailPage";
+import { EventsPage } from "@/pages/EventsPage";
+import { SettingsPage } from "@/pages/SettingsPage";
+import { NotFoundPage } from "@/pages/NotFoundPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -13,30 +16,22 @@ const queryClient = new QueryClient({
   },
 });
 
-function NotFoundPage(): React.ReactElement {
-  return (
-    <div className="not-found">
-      <h1>404</h1>
-      <p>Page not found</p>
-      <Link to="/tasks">Back to Tasks</Link>
-    </div>
-  );
-}
-
-export function App(): React.ReactElement {
+export function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Layout>
+        <Shell>
           <Routes>
-            <Route path="/" element={<Navigate to="/tasks" replace />} />
+            <Route path="/" element={<CommandCenter />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/tasks/:id" element={<TaskDetailPage />} />
             <Route path="/clients" element={<ClientsPage />} />
             <Route path="/clients/:id" element={<ClientDetailPage />} />
+            <Route path="/events" element={<EventsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
-        </Layout>
+        </Shell>
       </BrowserRouter>
     </QueryClientProvider>
   );

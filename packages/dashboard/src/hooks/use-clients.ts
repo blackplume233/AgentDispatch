@@ -1,9 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client.js';
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/api/client";
 
 export function useClients() {
   return useQuery({
-    queryKey: ['clients'],
+    queryKey: ["clients"],
     queryFn: () => api.clients.list(),
     refetchInterval: 10000,
   });
@@ -11,7 +11,7 @@ export function useClients() {
 
 export function useClient(id: string) {
   return useQuery({
-    queryKey: ['clients', id],
+    queryKey: ["clients", id],
     queryFn: () => api.clients.get(id),
     refetchInterval: 5000,
   });
