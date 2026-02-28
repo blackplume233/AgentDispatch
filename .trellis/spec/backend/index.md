@@ -736,11 +736,14 @@ private flushStreamBuffers(): void {
 
 **Gotcha — 重入保护**：`flushStreamBuffers()` → `record()` → `flushLogs()` → `flushStreamBuffers()` 可能形成循环调用。必须加 `flushingStreams` 布尔守卫。
 
-**消息边界**：
-- `tool_call` / `tool_call_update` / `plan` / `default` 事件到达时 flush
-- 定时器周期性 flush（`LOG_FLUSH_INTERVAL`）
+**消息边界** [CHANGED 2026-03-01]：
+- `tool_call` / `tool_call_update` 事件到达时 flush（真正的阶段切换）
+- 定时器周期性 flush（`LOG_FLUSH_INTERVAL`，默认 2s）
 - `flushLogs()` 被显式调用时 flush
 - `destroy()` 时 flush
+
+**不触发 flush 的事件**：`plan`、`default`（如 `available_commands_update`）。
+这些事件可能在 token 流之间高频穿插，如果每次都 flush 会导致 text buffer 碎片化，产生大量只有 1-2 个 token 的日志条目。
 
 ### 任务产物隔离（保留 Agent 上下文） [CHANGED 2026-02-28]
 
@@ -825,6 +828,80 @@ class TaskService {
   }
 }
 ```
+
+### 进度上报节流 [NEW 2026-03-01]
+
+> **Gotcha**: 流式 token 到达频率可达几十毫秒一次。如果每个 chunk 都上报进度，会产生大量无意义 HTTP 请求打满 Server。
+
+**Pattern**: `DispatchAcpClient.notifyProgress()` 内置 3s 节流 + 去重：
+
+```typescript
+private static readonly PROGRESS_THROTTLE_MS = 3000;
+private lastProgressTime = 0;
+private lastProgressText = '';
+
+private notifyProgress(text: string, force = false): void {
+  const now = Date.now();
+  if (!force && text === this.lastProgressText) return;
+  if (!force && now - this.lastProgressTime < PROGRESS_THROTTLE_MS) return;
+  this.lastProgressTime = now;
+  this.lastProgressText = text;
+  this.onProgress?.(text);
+}
+```
+
+**阶段切换强制上报**：`tool_call` / `tool_call_update` 使用 `force: true` 绕过节流。
+
+**初始进度**：`AcpController` 在 `runAcpSession` 前发送 `"Initializing agent..."`，确保 `claimed → in_progress` 状态转换在 Agent 还没有输出时就完成。
+
+### ClientNode 自动重连 [NEW 2026-03-01]
+
+> **Problem**: Server 重启或网络中断后，ClientNode 的心跳静默失败，客户端从 Server 视角"消失"，无法重新领取任务。
+
+**Pattern**: 连续心跳失败 → 指数退避重连注册
+
+```typescript
+class ClientNode {
+  private static readonly HEARTBEAT_FAIL_THRESHOLD = 3;
+  private static readonly RECONNECT_BASE_DELAY = 2000;  // 2s
+  private static readonly RECONNECT_MAX_DELAY = 30000;   // 30s
+
+  private async doHeartbeat(): Promise<void> {
+    try {
+      await this.httpClient.heartbeat(this.client.id, { ... });
+      this.consecutiveHeartbeatFailures = 0;
+    } catch {
+      this.consecutiveHeartbeatFailures++;
+      if (this.consecutiveHeartbeatFailures >= THRESHOLD) {
+        void this.reconnect();
+      }
+    }
+  }
+
+  private async reconnect(): Promise<void> {
+    this.poller.stop();
+    let delay = RECONNECT_BASE_DELAY;
+    while (!this.stopped) {
+      try {
+        this.client = await this.httpClient.registerClient({ ... });
+        this.poller.start();
+        return;
+      } catch (err) {
+        // "already registered" → 查找现有 client 复用
+        await sleep(delay);
+        delay = Math.min(delay * 2, RECONNECT_MAX_DELAY);
+      }
+    }
+  }
+}
+```
+
+**关键行为**：
+- 心跳失败 3 次触发重连，单次失败仅记日志
+- 重连期间停止任务轮询，避免在断连状态下领取任务
+- 若 Server 返回 "already registered"，尝试 `listClients()` 找到现有记录复用
+- `stop()` 设置 `this.stopped = true`，优雅关闭期间不会尝试重连
+- 心跳恢复后自动清零失败计数，日志记录恢复事件
 
 ### 防御性编程
 

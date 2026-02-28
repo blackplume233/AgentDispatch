@@ -21,6 +21,7 @@
 
 | 日期 | 变更 | 类型 | 影响范围 |
 |------|------|------|----------|
+| 2026-03-01 | 日志聚合消息边界修正：`plan`/`default` 不再触发 `flushStreamBuffers()`，仅 `tool_call`/`tool_call_update` 触发（真正的阶段切换）；进度上报增加 3s 节流 + 流式粗略状态（Responding.../Thinking...）；ClientNode 新增自动重连（指数退避 2s→30s）；Dashboard 渲染前合并相邻同类型日志条目（text/thinking/prompt 直接拼接，tool_call 组换行拼接） | [CHANGED] | ClientNode, Dashboard |
 | 2026-02-28 | ProgressDTO.progress 语义变更：不再表示百分比，固定为 0（仅触发状态机转换），实际状态通过 message 描述；IPC 新增 `task.cancel` 命令；DispatchAcpClient 日志聚合：text/thinking/prompt token 流聚合为完整消息后再记录；新增 ProgressCallback 回调（纯状态描述）；任务 workDir 隔离 | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-02-28 | Worker 通信方式明确为 CLI 调用；CLI 新增 `dispatch worker` 命令组（progress/complete/fail/status/log/heartbeat）；Manager 职责收窄为 Node 分发顾问 | [CHANGED] | ClientNode, ClientCLI, Worker |
 | 2026-02-28 | 任务完成必须提交产物（zip + result.json）；Task 新增 `artifacts` 字段；complete 接口改为 multipart；新增 4 个 ARTIFACT 错误码 | [CHANGED] | Server, ClientNode, Worker, Dashboard |

@@ -173,6 +173,45 @@ QueryClientProvider → BrowserRouter → Shell → Routes
 )}
 ```
 
+### 日志流合并渲染 [NEW 2026-03-01]
+
+> **Problem**: 即使后端做了流式聚合，日志条目仍可能因 flush 定时器等原因产生相邻同类型条目。逐条渲染会导致视觉碎片化。
+
+**Pattern**: 在渲染前用 `mergeLogs()` 合并相邻同类型日志条目：
+
+```typescript
+const STREAM_TYPES = new Set(["text", "thinking", "prompt"]);
+const TOOL_TYPES = new Set(["tool_call", "tool_call_update"]);
+
+function isMergeable(a: LogEntry, b: LogEntry): boolean {
+  if (a.metadata?.sessionId !== b.metadata?.sessionId) return false;
+  if (a.type === b.type && STREAM_TYPES.has(a.type)) return true;
+  if (TOOL_TYPES.has(a.type) && TOOL_TYPES.has(b.type)) return true;
+  return false;
+}
+
+function mergeLogs(entries: LogEntry[]): LogEntry[] {
+  const merged: LogEntry[] = [];
+  let current = entries[0];
+  for (let i = 1; i < entries.length; i++) {
+    if (isMergeable(current, entries[i])) {
+      const sep = TOOL_TYPES.has(current.type) ? "\n" : "";
+      current = { ...current, content: current.content + sep + entries[i].content };
+    } else {
+      merged.push(current);
+      current = entries[i];
+    }
+  }
+  merged.push(current);
+  return merged;
+}
+```
+
+**合并规则**：
+- 同 sessionId + 同类型的 text/thinking/prompt → 直接拼接 content
+- 同 sessionId 的连续 tool_call + tool_call_update → 换行拼接（每个 tool 调用保持可辨识）
+- 不同 sessionId 或不同类别 → 不合并，保留边界
+
 ### Markdown 渲染日志和产物
 
 AI 日志（text、thinking、plan）及 `.md` 产物文件使用 `react-markdown` + `remark-gfm` 渲染：
