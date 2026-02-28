@@ -1,0 +1,31 @@
+{
+  "taskId": "dc765e83-ca17-4f41-ba55-fb8871021ca9",
+  "success": true,
+  "summary": "Bilibili Video Analysis Report",
+  "outputs": [
+    {
+      "name": "analysis-report.md",
+      "type": "md",
+      "path": "analysis-report.md",
+      "description": "3.5 KB"
+    },
+    {
+      "name": "cover.jpg",
+      "type": "jpg",
+      "path": "cover.jpg",
+      "description": "478.6 KB"
+    },
+    {
+      "name": "video-metadata.json",
+      "type": "json",
+      "path": "video-metadata.json",
+      "description": "2.7 KB"
+    },
+    {
+      "name": "webfetch_results.md",
+      "type": "md",
+      "path": "webfetch_results.md",
+      "description": "18.9 KB"
+    }
+  ]
+}

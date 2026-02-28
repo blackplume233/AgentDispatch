@@ -227,18 +227,33 @@ Manager Agent 通过 ACP 与 ClientNode Core 通信，职责**仅限于**：
 
 ```
 4. [Worker] 执行任务
-   → 调用 `dispatch worker progress` 上报进度
-   → CLI → IPC → Node Core → HTTP → Server 更新文件
+   → ACP session/update 推送 tool_call / plan / message 事件
+   → ClientNode 的 DispatchAcpClient 聚合流式 chunk 为完整消息记录日志
+   → DispatchAcpClient 从事件中提取状态描述，调用 ProgressCallback
+   → Node Core → HTTP → Server 更新进度 (message 字段为状态描述)
+   → ⚠️ 首次 reportProgress 触发 claimed → in_progress 状态转换
 
-5. [Worker] 完成任务 — 打包产物
-   → 生成 artifact.zip + result.json
-   → 调用 `dispatch worker complete <task-id> --zip <path> --result <path>`
-   → CLI → IPC → Node Core 预校验 → HTTP 上传到 Server
+5. [Worker] 完成任务 — ClientNode 自动收集产物
+   → ACP session 结束（Worker 的 prompt 返回）
+   → ClientNode handleTaskCompletion 扫描任务隔离 workDir
+   → 自动 zip 全部文件 + 生成 result.json
+   → HTTP 上传到 Server (completeTask)
 
 6. [Server] 校验产物
    → 检查 zip + result.json 存在性、格式、必填字段
    → 校验通过 → 存储产物 → 状态: completed → 触发回调
    → 校验失败 → 状态: failed (ARTIFACT_* 错误)
+```
+
+**任务取消**（Dashboard / API 发起） [NEW 2026-02-28]：
+
+```
+1. [Dashboard/API] POST /tasks/:id/cancel
+   → Server 标记任务 cancelled
+2. [ClientNode] 或 IPC task.cancel 命令
+   → 找到运行中的 Agent 进程 → kill
+   → 清理 taskWorkDir
+   → 通知 Server
 ```
 
 **异常处理**（所有模式通用）：

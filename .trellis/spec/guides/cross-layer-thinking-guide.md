@@ -210,6 +210,50 @@ async readTextFile(params: ReadTextFileRequest) {
 
 ---
 
+## AgentDispatch 跨层常见陷阱 [NEW 2026-02-28]
+
+### 陷阱 1: 任务状态机跳跃
+
+**症状**: `completeTask` 调用返回 `TASK_INVALID_TRANSITION` 错误
+
+**原因**: Server 的任务状态机要求 `claimed → in_progress → completed` 的严格顺序。ClientNode 申领任务后状态是 `claimed`，必须先通过 `reportProgress()` 触发一次 `claimed → in_progress` 转换，然后才能 `completeTask()`。
+
+**涉及层**: ClientNode (node.ts handleTaskCompletion) → Server (task-service)
+
+**Fix**: 在 `handleTaskCompletion` 的开头调用 `reportProgress({ progress: 0, message: 'Collecting artifacts...' })`。
+
+### 陷阱 2: ACP 流式 chunk 直接入日志
+
+**症状**: Dashboard 日志页面显示数百条只有几个字符的日志条目，无法阅读
+
+**原因**: ACP 的 `agent_message_chunk` 和 `agent_thought_chunk` 是逐 token 推送的。如果每个 chunk 都直接 `record()` 为一条独立日志，就会产生碎片。
+
+**涉及层**: ClientNode (dispatch-acp-client.ts) → Server (日志存储) → Dashboard (日志展示)
+
+**Fix**: 使用流式缓冲区（textBuffer/thinkingBuffer）聚合 chunk，在结构化事件边界（tool_call / plan / flush / destroy）时才 flush 为完整消息。
+
+### 陷阱 3: Worker 产物跨任务污染
+
+**症状**: 第二个任务的产物 zip 里包含了第一个任务的文件
+
+**原因**: 同一个 Agent Worker 的 `workDir` 是固定的。如果连续执行两个任务都用同一个 workDir，第二次 `collectArtifacts` 会把第一次的残留文件一起打包。
+
+**涉及层**: ClientNode (node.ts dispatchPendingTasks) → ACP (session cwd) → ClientNode (collectArtifacts)
+
+**Fix**: 为每个任务在 `{workDir}/tasks/{taskId.slice(0,12)}/` 创建隔离子目录，ACP session 的 cwd 指向该子目录。
+
+### 陷阱 4: CJS 依赖在 ESM 构建中崩溃
+
+**症状**: `Error: Dynamic require of "fs" is not supported`
+
+**原因**: tsup 默认将所有依赖打包进 ESM bundle。CJS-only 的包（如 `adm-zip`）内部使用 `require()`，打包进 ESM 后无法运行。
+
+**涉及层**: Build (tsup.config.ts) → Runtime (node.ts)
+
+**Fix**: 在 `tsup.config.ts` 的 `external` 数组中列出 CJS-only 依赖。
+
+---
+
 ## Actant Cross-Layer Checklist
 
 ### Before Implementation

@@ -24,6 +24,30 @@ import { useArtifactFiles } from "@/hooks/use-artifact-files";
 import { api } from "@/api/client";
 import type { InteractionLogEntry, InteractionStepType, ArtifactFileEntry } from "@/types";
 
+const MERGEABLE_TYPES = new Set<InteractionStepType>(["text", "thinking", "prompt"]);
+
+function mergeLogs(entries: InteractionLogEntry[]): InteractionLogEntry[] {
+  if (entries.length === 0) return entries;
+  const merged: InteractionLogEntry[] = [];
+  let current = entries[0]!;
+
+  for (let i = 1; i < entries.length; i++) {
+    const entry = entries[i]!;
+    if (
+      entry.type === current.type &&
+      MERGEABLE_TYPES.has(entry.type) &&
+      entry.metadata?.sessionId === current.metadata?.sessionId
+    ) {
+      current = { ...current, content: current.content + entry.content };
+    } else {
+      merged.push(current);
+      current = entry;
+    }
+  }
+  merged.push(current);
+  return merged;
+}
+
 export function TaskDetailPage(): React.ReactElement {
   const { t } = useTranslation();
   const { id = "" } = useParams<{ id: string }>();
@@ -274,7 +298,7 @@ export function TaskDetailPage(): React.ReactElement {
         <CardContent>
           {logs.length > 0 ? (
             <div className="space-y-3">
-              {logs.map((entry) => (
+              {mergeLogs(logs).map((entry) => (
                 <InteractionEntry key={entry.id} entry={entry} />
               ))}
             </div>

@@ -684,6 +684,103 @@ describe('TaskService')
 
 ## Common Patterns
 
+### ACP 日志聚合模式 [NEW 2026-02-28]
+
+> **⚠️ ACP session/update 的 `agent_message_chunk` 和 `agent_thought_chunk` 是逐 token 推送的。如果逐条记录会产生数百条碎片日志，完全无法阅读。**
+
+**Pattern**: 在 `DispatchAcpClient` 内维护流式缓冲区，遇到结构化事件边界时才 flush 成一条完整日志。
+
+```typescript
+// 缓冲区
+private textBuffer = '';
+private thinkingBuffer = '';
+
+// 收到 agent_message_chunk → 追加到 textBuffer
+// 收到 tool_call / plan / flush 请求 → flush 缓冲区 → 记录完整消息
+
+private flushStreamBuffers(): void {
+  if (this.flushingStreams) return;  // 防重入
+  this.flushingStreams = true;
+  try {
+    if (this.textBuffer.length > 0) {
+      const text = this.textBuffer;
+      this.textBuffer = '';
+      this.record('text', text, ...);  // 一条完整消息
+    }
+    // thinking/prompt 同理
+  } finally {
+    this.flushingStreams = false;
+  }
+}
+```
+
+**Gotcha — 重入保护**：`flushStreamBuffers()` → `record()` → `flushLogs()` → `flushStreamBuffers()` 可能形成循环调用。必须加 `flushingStreams` 布尔守卫。
+
+**消息边界**：
+- `tool_call` / `tool_call_update` / `plan` / `default` 事件到达时 flush
+- 定时器周期性 flush（`LOG_FLUSH_INTERVAL`）
+- `flushLogs()` 被显式调用时 flush
+- `destroy()` 时 flush
+
+### 任务 WorkDir 隔离 [NEW 2026-02-28]
+
+> **⚠️ 同一 Worker 连续执行多个任务时，前一个任务残留的文件会被后一个任务的 `collectArtifacts` 扫描打包，导致产物混淆。**
+
+**Pattern**: 为每个任务在 Agent 的 `workDir` 下创建隔离子目录：
+
+```
+{agentConfig.workDir}/tasks/{taskId.slice(0, 12)}/
+```
+
+- ACP `newSession` 的 `cwd` 指向此隔离目录
+- `collectArtifacts` 只扫描此目录
+- 任务完成后从 `taskWorkDirs` Map 中清理引用
+
+**不要**：直接使用 `agentConfig.workDir` 作为 session cwd。
+
+### 进度汇报用状态描述，不用百分比 [NEW 2026-02-28]
+
+> **AI Agent 任务的完成时间不可预测。伪造的百分比进度（如根据 plan 步骤计算）会误导用户。**
+
+**Do**: `message: "Calling: curl — 获取视频信息"` — 描述 Agent 当前在做什么
+
+**Don't**: `progress: 67` — 用户看到 67% 会以为快完成了，但 Agent 可能还要做很多步
+
+`ProgressDTO.progress` 字段保留但固定传 `0`（仅触发 `claimed → in_progress` 状态转换），实际进展通过 `message` 字段以自然语言描述。
+
+### 任务状态机合规 [NEW 2026-02-28]
+
+> **Gotcha**: Server 的任务状态机不允许从 `claimed` 直接跳到 `completed`。必须先经过 `in_progress`。
+
+```
+claimed → in_progress → completed
+```
+
+**在 `handleTaskCompletion` 中**，需要先调用一次 `reportProgress()` 触发 `claimed → in_progress` 转换，然后才能调用 `completeTask()`。否则 Server 会返回 `TASK_INVALID_TRANSITION` 错误。
+
+### ESM/CJS 模块兼容 [NEW 2026-02-28]
+
+> **Gotcha**: 在 ESM 输出的 tsup 构建中，CJS-only 的依赖（如 `adm-zip`）如果被打包进 bundle 会报 `Dynamic require of "fs" is not supported` 错误。
+
+**Fix**: 在 `tsup.config.ts` 的 `external` 数组中显式排除这些包：
+
+```typescript
+export default defineConfig({
+  external: ['@agentdispatch/shared', 'adm-zip'],
+});
+```
+
+### ESLint: CLI 包 console 规则 [NEW 2026-02-28]
+
+CLI 包的 `console.log` 是面向用户的正常输出渠道，不应触发 `no-console` 警告。在根 `eslint.config.js` 中为 CLI 包添加 override：
+
+```javascript
+{
+  files: ['packages/client-cli/src/**/*.ts'],
+  rules: { 'no-console': 'off' },
+},
+```
+
 ### Service 层模式
 
 ```typescript

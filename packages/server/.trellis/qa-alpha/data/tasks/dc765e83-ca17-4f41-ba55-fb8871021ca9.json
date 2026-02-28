@@ -2,16 +2,56 @@
   "id": "dc765e83-ca17-4f41-ba55-fb8871021ca9",
   "title": "这是一个测试任务",
   "description": "进行五十次以上的webfetch调用，每次输出调用了什么及内容总结",
-  "status": "claimed",
+  "status": "completed",
   "tags": [
     "code"
   ],
   "priority": "normal",
   "createdAt": "2026-02-28T17:29:35.093Z",
-  "updatedAt": "2026-02-28T17:29:38.632Z",
+  "updatedAt": "2026-02-28T17:33:34.264Z",
   "claimedBy": {
     "clientId": "4d999d2a-5bfa-4c09-b87f-c1a8f633a7bd",
     "agentId": "worker-claude"
   },
-  "claimedAt": "2026-02-28T17:29:38.632Z"
+  "claimedAt": "2026-02-28T17:29:38.632Z",
+  "progress": 100,
+  "progressMessage": "Collecting artifacts...",
+  "artifacts": {
+    "zipFile": "artifacts\\dc765e83-ca17-4f41-ba55-fb8871021ca9\\artifact.zip",
+    "zipSizeBytes": 494381,
+    "zipHash": "43cda644d70cb958155093f39a009550daed5569a464deec13a9c157ac770a69",
+    "resultJson": {
+      "taskId": "dc765e83-ca17-4f41-ba55-fb8871021ca9",
+      "success": true,
+      "summary": "Bilibili Video Analysis Report",
+      "outputs": [
+        {
+          "name": "analysis-report.md",
+          "type": "md",
+          "path": "analysis-report.md",
+          "description": "3.5 KB"
+        },
+        {
+          "name": "cover.jpg",
+          "type": "jpg",
+          "path": "cover.jpg",
+          "description": "478.6 KB"
+        },
+        {
+          "name": "video-metadata.json",
+          "type": "json",
+          "path": "video-metadata.json",
+          "description": "2.7 KB"
+        },
+        {
+          "name": "webfetch_results.md",
+          "type": "md",
+          "path": "webfetch_results.md",
+          "description": "18.9 KB"
+        }
+      ]
+    },
+    "uploadedAt": "2026-02-28T17:33:34.263Z"
+  },
+  "completedAt": "2026-02-28T17:33:34.264Z"
 }

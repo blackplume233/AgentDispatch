@@ -13,8 +13,7 @@
     {
       "id": "worker-claude",
       "type": "worker",
-      "status": "busy",
-      "currentTaskId": "dc765e83-ca17-4f41-ba55-fb8871021ca9",
+      "status": "idle",
       "capabilities": [
         "code",
         "docs",
@@ -22,6 +21,6 @@
       ]
     }
   ],
-  "lastHeartbeat": "2026-02-28T17:31:37.629Z",
+  "lastHeartbeat": "2026-02-28T17:36:07.820Z",
   "registeredAt": "2026-02-28T16:53:20.696Z"
 }

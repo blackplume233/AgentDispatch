@@ -191,7 +191,6 @@ export class DispatchAcpClient implements AcpClient {
         break;
       }
       case 'plan': {
-        this.flushStreamBuffers();
         const plan = update as unknown as { entries?: Array<{ content: string; status: string }> };
         const entries = plan.entries ?? [];
         const inProgress = entries.find((e) => e.status === 'in_progress' || e.status === 'active');
@@ -204,7 +203,6 @@ export class DispatchAcpClient implements AcpClient {
         break;
       }
       default: {
-        this.flushStreamBuffers();
         this.record('system', `session_update: ${(update as { sessionUpdate: string }).sessionUpdate}`, {
           sessionUpdate: (update as { sessionUpdate: string }).sessionUpdate,
           raw: update as unknown as Record<string, unknown>,

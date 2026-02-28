@@ -151,6 +151,60 @@ QueryClientProvider → BrowserRouter → Shell → Routes
 
 ---
 
+## Common Patterns [NEW 2026-02-28]
+
+### 进度展示：状态文本 + 脉冲指示器
+
+> **不要使用进度条或百分比数字。** AI Agent 的任务完成时间不可预测，百分比会误导用户。
+
+使用 Tailwind 动画脉冲绿点 + Agent 当前状态描述文字：
+
+```tsx
+{task.progressMessage && (
+  <div className="flex items-center gap-2">
+    {isActive && (
+      <span className="relative flex h-2.5 w-2.5 shrink-0">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+        <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+      </span>
+    )}
+    <span className="text-sm">{task.progressMessage}</span>
+  </div>
+)}
+```
+
+### Markdown 渲染日志和产物
+
+AI 日志（text、thinking、plan）及 `.md` 产物文件使用 `react-markdown` + `remark-gfm` 渲染：
+
+```tsx
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+<div className="prose prose-sm dark:prose-invert max-w-none">
+  <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+</div>
+```
+
+**注意**：`prose` 样式中 `dark:prose-invert` 确保暗色模式下文字可读。设置 `max-w-none` 避免内容被截断。
+
+### 显式函数返回类型
+
+ESLint `explicit-function-return-type` 规则要求所有导出函数（包括 React 组件）声明返回类型：
+
+```tsx
+// ✅ 正确
+export function TasksPage(): React.ReactElement { ... }
+export function useTheme(): { theme: string; toggle: () => void } { ... }
+
+// ❌ 错误 — 缺少返回类型
+export function TasksPage() { ... }
+```
+
+Hook 返回复杂对象时，定义 interface 后作为返回类型。
+
+---
+
 ## Testing
 
 - Vitest — 单元 + 组件测试
