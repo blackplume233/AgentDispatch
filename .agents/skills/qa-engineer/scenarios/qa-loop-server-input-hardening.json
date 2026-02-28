@@ -1,0 +1,59 @@
+{
+  "name": "qa-loop-server-input-hardening",
+  "description": "强化 Server 输入校验与字段白名单，防止 500、状态污染和资源篡改",
+  "tags": ["qa-loop", "server", "validation", "security", "regression"],
+  "setup": {
+    "server": true,
+    "clientNode": false,
+    "templates": []
+  },
+  "steps": [
+    {
+      "id": "create-baseline-task",
+      "description": "创建基准任务，记录 id/status/createdAt",
+      "type": "http",
+      "command": "POST /api/v1/tasks {\"title\":\"baseline\",\"tags\":[\"qa-loop\"],\"priority\":\"normal\"}",
+      "expect": "返回 201，响应包含合法 task id，status=pending，createdAt 为 ISO 时间字符串",
+      "artifacts": "data/tasks/<taskId>.json 与 data/tasks/<taskId>.md 均已生成"
+    },
+    {
+      "id": "patch-forbidden-fields",
+      "description": "尝试通过 PATCH 覆盖受保护字段（id/status/createdAt）",
+      "type": "http",
+      "command": "PATCH /api/v1/tasks/:id {\"id\":\"evil-id\",\"status\":\"completed\",\"createdAt\":\"1970-01-01T00:00:00.000Z\"}",
+      "expect": "返回 400（或 422）并明确非法字段；不得返回 200",
+      "artifacts": "原 task 文件路径和内容保持不变，不应出现 evil-id.json"
+    },
+    {
+      "id": "patch-invalid-tags-type",
+      "description": "尝试写入非法 tags 类型（string）",
+      "type": "http",
+      "command": "PATCH /api/v1/tasks/:id {\"tags\":\"not-an-array\"}",
+      "expect": "返回 400 VALIDATION_ERROR；不得出现 500 INTERNAL_ERROR"
+    },
+    {
+      "id": "register-client-missing-agents",
+      "description": "客户端注册请求缺少 agents 字段",
+      "type": "http",
+      "command": "POST /api/v1/clients/register {\"name\":\"qa-loop-node-a\",\"host\":\"localhost\",\"dispatchMode\":\"tag-auto\"}",
+      "expect": "返回 400 并指出 agents 必填；不得出现 500"
+    },
+    {
+      "id": "register-client-invalid-dispatch-mode",
+      "description": "客户端注册传入非法 dispatchMode",
+      "type": "http",
+      "command": "POST /api/v1/clients/register {\"name\":\"qa-loop-node-b\",\"host\":\"localhost\",\"dispatchMode\":\"invalid-mode\",\"agents\":[]}",
+      "expect": "返回 400 并指出 dispatchMode 不合法；不得出现 500"
+    },
+    {
+      "id": "verify-baseline-task-still-clean",
+      "description": "确认基准任务未被污染",
+      "type": "http",
+      "command": "GET /api/v1/tasks/:id",
+      "expect": "返回 200，id/status/createdAt 与 Step 1 一致，status 仍为 pending"
+    }
+  ],
+  "cleanup": [
+    "DELETE /api/v1/tasks/:id (baseline task)"
+  ]
+}

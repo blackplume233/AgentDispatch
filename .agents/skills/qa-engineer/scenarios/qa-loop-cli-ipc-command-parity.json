@@ -1,0 +1,27 @@
+{
+  "name": "qa-loop-cli-ipc-command-parity",
+  "description": "验证 CLI 暴露命令与 ClientNode IPC handler 一致，避免运行期 Unknown IPC command",
+  "tags": ["qa-loop", "cli", "ipc", "client-node", "contract"],
+  "setup": {
+    "server": false,
+    "clientNode": false,
+    "templates": []
+  },
+  "steps": [
+    {
+      "id": "run-parity-guard-script",
+      "description": "执行 IPC 命令契约检查脚本",
+      "type": "shell",
+      "command": "node scripts/qa/check-ipc-command-parity.mjs",
+      "expect": "退出码为 0；输出包含 'IPC command parity check passed.'"
+    },
+    {
+      "id": "enforce-in-ci",
+      "description": "将契约检查加入 CI 或 pre-merge 阶段",
+      "type": "shell",
+      "command": "pnpm test && node scripts/qa/check-ipc-command-parity.mjs",
+      "expect": "两条命令均成功；任一新增 CLI 命令若无 Node handler，流程必须失败"
+    }
+  ],
+  "cleanup": []
+}

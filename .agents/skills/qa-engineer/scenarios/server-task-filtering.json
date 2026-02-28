@@ -1,0 +1,54 @@
+{
+  "name": "server-task-filtering",
+  "description": "验证 Server 端任务列表的分页和过滤功能",
+  "tags": ["task", "filter", "pagination", "server"],
+  "setup": {
+    "server": true,
+    "clientNode": false
+  },
+  "steps": [
+    {
+      "id": "create-tasks-batch",
+      "description": "批量创建多个不同类型和标签的任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks (x5, different types and tags)",
+      "expect": "5 个任务全部创建成功"
+    },
+    {
+      "id": "list-all",
+      "description": "不带过滤条件列出所有任务",
+      "type": "http",
+      "command": "GET /api/v1/tasks",
+      "expect": "返回所有 5 个任务"
+    },
+    {
+      "id": "filter-by-status",
+      "description": "按状态过滤",
+      "type": "http",
+      "command": "GET /api/v1/tasks?status=pending",
+      "expect": "仅返回 pending 状态的任务"
+    },
+    {
+      "id": "filter-by-tag",
+      "description": "按标签过滤",
+      "type": "http",
+      "command": "GET /api/v1/tasks?tag=gpu",
+      "expect": "仅返回包含 gpu 标签的任务"
+    },
+    {
+      "id": "pagination-limit",
+      "description": "分页查询第一页",
+      "type": "http",
+      "command": "GET /api/v1/tasks?page=1&limit=2",
+      "expect": "返回 2 条记录，分页信息正确"
+    },
+    {
+      "id": "pagination-page2",
+      "description": "分页查询第二页",
+      "type": "http",
+      "command": "GET /api/v1/tasks?page=2&limit=2",
+      "expect": "返回后续记录"
+    }
+  ],
+  "cleanup": []
+}

@@ -1,0 +1,66 @@
+{
+  "name": "qa-loop-task-ownership-guard",
+  "description": "验证 task 认领者约束，阻止非 owner 的 release/progress/cancel/complete 操作",
+  "tags": ["qa-loop", "server", "task", "authz", "state-machine"],
+  "setup": {
+    "server": true,
+    "clientNode": false,
+    "templates": []
+  },
+  "steps": [
+    {
+      "id": "register-client-a",
+      "description": "注册 Client A（合法执行者）",
+      "type": "http",
+      "command": "POST /api/v1/clients/register {\"name\":\"qa-owner-a\",\"host\":\"localhost\",\"dispatchMode\":\"tag-auto\",\"agents\":[{\"id\":\"a-worker\",\"type\":\"worker\",\"command\":\"echo\",\"workDir\":\"/tmp\"}]}",
+      "expect": "返回 201，记录 clientA.id"
+    },
+    {
+      "id": "register-client-b",
+      "description": "注册 Client B（非法抢占者）",
+      "type": "http",
+      "command": "POST /api/v1/clients/register {\"name\":\"qa-owner-b\",\"host\":\"localhost\",\"dispatchMode\":\"tag-auto\",\"agents\":[{\"id\":\"b-worker\",\"type\":\"worker\",\"command\":\"echo\",\"workDir\":\"/tmp\"}]}",
+      "expect": "返回 201，记录 clientB.id"
+    },
+    {
+      "id": "create-and-claim-by-a",
+      "description": "创建任务并由 Client A 认领",
+      "type": "http",
+      "command": "POST /api/v1/tasks + POST /api/v1/tasks/:id/claim {\"clientId\":\"<clientA.id>\",\"agentId\":\"a-worker\"}",
+      "expect": "认领成功，status=claimed，claimedBy.clientId=<clientA.id>"
+    },
+    {
+      "id": "release-by-b-should-fail",
+      "description": "Client B 尝试释放 A 的任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:id/release {\"clientId\":\"<clientB.id>\",\"reason\":\"steal\"}",
+      "expect": "返回 403 或 409；不得返回 200"
+    },
+    {
+      "id": "progress-by-b-should-fail",
+      "description": "Client B 冒充上报进度",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:id/progress {\"clientId\":\"<clientB.id>\",\"agentId\":\"b-worker\",\"progress\":50,\"message\":\"hijack\"}",
+      "expect": "返回 403 或 409；不得返回 200"
+    },
+    {
+      "id": "cancel-by-b-should-fail",
+      "description": "Client B 取消 A 的任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:id/cancel {\"reason\":\"unauthorized\"}",
+      "expect": "返回 403 或 409；不得返回 200"
+    },
+    {
+      "id": "release-by-a-should-pass",
+      "description": "由 owner（Client A）释放任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:id/release {\"clientId\":\"<clientA.id>\",\"reason\":\"normal-release\"}",
+      "expect": "返回 200，status 回到 pending"
+    }
+  ],
+  "cleanup": [
+    "DELETE /api/v1/tasks/:id",
+    "DELETE /api/v1/clients/<clientA.id>",
+    "DELETE /api/v1/clients/<clientB.id>"
+  ]
+}

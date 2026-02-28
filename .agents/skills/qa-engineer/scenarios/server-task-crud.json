@@ -1,0 +1,82 @@
+{
+  "name": "server-task-crud",
+  "description": "验证 Server 端 Task 的完整 CRUD 流程：创建、查询、更新、删除，以及状态转换（claim→progress→complete/cancel）",
+  "tags": ["task", "crud", "smoke", "server"],
+  "setup": {
+    "server": true,
+    "clientNode": false
+  },
+  "steps": [
+    {
+      "id": "create-task",
+      "description": "创建一个新任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks {\"title\":\"QA Test Task\",\"type\":\"code-review\",\"input\":{\"prompt\":\"Review this code\"}}",
+      "expect": "返回 201，响应包含 id、status=pending、title 与请求一致"
+    },
+    {
+      "id": "get-task",
+      "description": "查询刚创建的任务",
+      "type": "http",
+      "command": "GET /api/v1/tasks/:id",
+      "expect": "返回 200，响应字段与创建时一致"
+    },
+    {
+      "id": "list-tasks",
+      "description": "列出所有任务",
+      "type": "http",
+      "command": "GET /api/v1/tasks",
+      "expect": "返回 200，列表中包含刚创建的任务"
+    },
+    {
+      "id": "update-task",
+      "description": "更新任务标题和优先级",
+      "type": "http",
+      "command": "PATCH /api/v1/tasks/:id {\"title\":\"Updated Task\",\"priority\":\"high\"}",
+      "expect": "返回 200，标题和优先级已更新"
+    },
+    {
+      "id": "claim-task",
+      "description": "认领任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:id/claim {\"clientId\":\"test-client\",\"agentId\":\"agent-1\"}",
+      "expect": "返回 200，status 变为 claimed 或 running"
+    },
+    {
+      "id": "progress-task",
+      "description": "报告任务进度",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:id/progress {\"percent\":50,\"message\":\"halfway done\"}",
+      "expect": "返回 200，进度信息已记录"
+    },
+    {
+      "id": "complete-task",
+      "description": "完成任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:id/complete",
+      "expect": "返回 200，status 变为 completed"
+    },
+    {
+      "id": "create-task-for-delete",
+      "description": "创建另一个任务用于测试删除",
+      "type": "http",
+      "command": "POST /api/v1/tasks {\"title\":\"Task to Delete\",\"type\":\"general\",\"input\":{\"prompt\":\"test\"}}",
+      "expect": "返回 201"
+    },
+    {
+      "id": "delete-task",
+      "description": "删除任务",
+      "type": "http",
+      "command": "DELETE /api/v1/tasks/:id",
+      "expect": "返回 200 或 204，任务已被删除"
+    },
+    {
+      "id": "get-deleted-task",
+      "description": "确认已删除的任务不可访问",
+      "type": "http",
+      "command": "GET /api/v1/tasks/:id (deleted)",
+      "expect": "返回 404"
+    }
+  ],
+  "cleanup": []
+}

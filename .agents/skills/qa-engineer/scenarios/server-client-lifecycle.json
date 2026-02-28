@@ -1,0 +1,61 @@
+{
+  "name": "server-client-lifecycle",
+  "description": "验证 Server 端客户端的注册、查询、心跳、Agent 更新、注销完整生命周期",
+  "tags": ["client", "lifecycle", "server"],
+  "setup": {
+    "server": true,
+    "clientNode": false
+  },
+  "steps": [
+    {
+      "id": "register-client",
+      "description": "注册一个新客户端",
+      "type": "http",
+      "command": "POST /api/v1/clients/register {\"name\":\"qa-test-node\",\"capabilities\":{\"maxAgents\":5},\"tags\":[\"gpu\",\"linux\"]}",
+      "expect": "返回 200/201，响应包含 clientId、status=online"
+    },
+    {
+      "id": "list-clients",
+      "description": "列出所有客户端",
+      "type": "http",
+      "command": "GET /api/v1/clients",
+      "expect": "返回 200，列表中包含刚注册的客户端"
+    },
+    {
+      "id": "get-client",
+      "description": "查询刚注册的客户端",
+      "type": "http",
+      "command": "GET /api/v1/clients/:id",
+      "expect": "返回 200，字段与注册时一致"
+    },
+    {
+      "id": "heartbeat",
+      "description": "发送心跳",
+      "type": "http",
+      "command": "POST /api/v1/clients/:id/heartbeat",
+      "expect": "返回 200，lastHeartbeat 时间已更新"
+    },
+    {
+      "id": "update-agents",
+      "description": "更新客户端的 Agent 列表",
+      "type": "http",
+      "command": "PATCH /api/v1/clients/:id/agents {\"agents\":[{\"id\":\"agent-1\",\"type\":\"worker\",\"status\":\"idle\"}]}",
+      "expect": "返回 200，agents 列表已更新"
+    },
+    {
+      "id": "unregister-client",
+      "description": "注销客户端",
+      "type": "http",
+      "command": "DELETE /api/v1/clients/:id",
+      "expect": "返回 200/204，客户端已被移除"
+    },
+    {
+      "id": "get-unregistered",
+      "description": "确认已注销的客户端不可访问",
+      "type": "http",
+      "command": "GET /api/v1/clients/:id (unregistered)",
+      "expect": "返回 404"
+    }
+  ],
+  "cleanup": []
+}
