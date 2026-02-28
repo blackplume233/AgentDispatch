@@ -28,6 +28,13 @@ export class TaskService {
   ) {}
 
   async createTask(dto: CreateTaskDTO): Promise<Task> {
+    if (!dto.title || typeof dto.title !== 'string') {
+      throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'title is required and must be a string');
+    }
+    if (!Array.isArray(dto.tags)) {
+      throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'tags is required and must be an array');
+    }
+
     const now = new Date().toISOString();
     const task: Task = {
       id: uuidv4(),
@@ -69,7 +76,7 @@ export class TaskService {
     }
     if (filters?.tag) {
       const tag = filters.tag;
-      tasks = tasks.filter((t) => t.tags.includes(tag));
+      tasks = tasks.filter((t) => Array.isArray(t.tags) && t.tags.includes(tag));
     }
 
     tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
