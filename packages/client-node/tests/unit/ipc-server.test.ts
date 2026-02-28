@@ -5,21 +5,26 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { IPCServer } from '../../src/ipc/ipc-server.js';
 
+function testIpcPath(label: string): string {
+  if (os.platform() === 'win32') {
+    return `\\\\.\\pipe\\dispatch-test-${label}-${Date.now()}`;
+  }
+  return path.join(os.tmpdir(), `ipc-${label}-${Date.now()}.sock`);
+}
+
 describe('IPCServer', () => {
   let server: IPCServer | null = null;
   let socketPath: string;
 
   afterEach(async () => {
     if (server) await server.stop();
-    try {
-      fs.unlinkSync(socketPath);
-    } catch {
-      /* ignore */
+    if (os.platform() !== 'win32') {
+      try { fs.unlinkSync(socketPath); } catch { /* ignore */ }
     }
   });
 
   it('should accept connections and handle commands', async () => {
-    socketPath = path.join(os.tmpdir(), `ipc-test-${Date.now()}.sock`);
+    socketPath = testIpcPath('echo');
     server = new IPCServer(socketPath, async (command, payload) => {
       if (command === 'test.echo') return { echo: payload };
       throw new Error('unknown');
@@ -42,7 +47,7 @@ describe('IPCServer', () => {
         data += chunk.toString();
         if (data.includes('\n')) {
           client.end();
-          resolve(JSON.parse(data.split('\n')[0]!));
+          resolve(JSON.parse(data.split('\n')[0] as string));
         }
       });
       client.on('error', reject);
@@ -57,7 +62,7 @@ describe('IPCServer', () => {
   });
 
   it('should return error for failed handlers', async () => {
-    socketPath = path.join(os.tmpdir(), `ipc-err-test-${Date.now()}.sock`);
+    socketPath = testIpcPath('err');
     server = new IPCServer(socketPath, async () => {
       throw new Error('handler failed');
     });
@@ -74,7 +79,7 @@ describe('IPCServer', () => {
         data += chunk.toString();
         if (data.includes('\n')) {
           client.end();
-          resolve(JSON.parse(data.split('\n')[0]!) as Record<string, unknown>);
+          resolve(JSON.parse(data.split('\n')[0] as string) as Record<string, unknown>);
         }
       });
       client.on('error', reject);

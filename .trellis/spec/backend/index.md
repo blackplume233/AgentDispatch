@@ -213,6 +213,25 @@ function getCliBin(): string {
 - 测试中的文件路径断言使用 `path.join()` 构造期望值，不硬编码分隔符
 - 临时文件使用 `os.tmpdir()` + 随机子目录，测试结束清理
 
+**IPC 测试必须使用平台感知路径** [NEW 2026-02-28]：
+
+> **⚠️ Windows 上 `net.Server.listen()` 传入 `.sock` 后缀的文件路径会报 `EACCES: permission denied`。**
+> Unix Domain Socket 文件在 Windows 上仅在特定条件下才可用（需要 AF_UNIX 支持且路径格式正确），直接用 `os.tmpdir() + xxx.sock` 在 Windows 上必定失败。
+
+所有创建 IPC 服务端或客户端的测试必须使用平台感知的工具函数：
+
+```typescript
+function testIpcPath(label: string): string {
+  if (os.platform() === 'win32') {
+    return `\\\\.\\pipe\\dispatch-test-${label}-${Date.now()}`;
+  }
+  return path.join(os.tmpdir(), `ipc-${label}-${Date.now()}.sock`);
+}
+```
+
+- Windows Named Pipe 无需文件系统清理（内核管理生命周期），`afterEach` 中只需在非 Windows 平台 `unlinkSync`
+- `Date.now()` 后缀避免并行测试路径冲突
+
 ### Anti-pattern
 
 | Don't | Do |
@@ -222,6 +241,7 @@ function getCliBin(): string {
 | `path.sep === '/'` 做平台判断 | `process.platform === 'linux'` |
 | `#!/usr/bin/env bash` 作为 npm scripts | `tsx src/index.ts` 或 `node dist/index.js` |
 | 依赖 `which` / `where` 查找命令 | 使用 `require.resolve()` 或显式配置路径 |
+| IPC 测试用 `path.join(tmpdir, 'xxx.sock')` | 用 `testIpcPath()` 平台工具函数（Windows 用 Named Pipe） |
 
 ---
 

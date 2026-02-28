@@ -2,16 +2,68 @@
   "id": "032f3081-8dfe-46a6-b077-46081f26571d",
   "title": "创建一个测试任务",
   "description": "随机访问五十个网页，输出网页主要内容",
-  "status": "claimed",
+  "status": "completed",
   "tags": [
     "code"
   ],
   "priority": "normal",
   "createdAt": "2026-02-28T17:37:58.549Z",
-  "updatedAt": "2026-02-28T17:37:59.419Z",
+  "updatedAt": "2026-02-28T17:45:37.475Z",
   "claimedBy": {
     "clientId": "4d999d2a-5bfa-4c09-b87f-c1a8f633a7bd",
     "agentId": "worker-claude"
   },
-  "claimedAt": "2026-02-28T17:37:59.419Z"
+  "claimedAt": "2026-02-28T17:37:59.419Z",
+  "progress": 100,
+  "progressMessage": "Collecting artifacts...",
+  "artifacts": {
+    "zipFile": "artifacts\\032f3081-8dfe-46a6-b077-46081f26571d\\artifact.zip",
+    "zipSizeBytes": 523991,
+    "zipHash": "8eeab321291104dbe0da4cb36c1b6e2e14919855929ead13d7ddd4b8c616e8b0",
+    "resultJson": {
+      "taskId": "032f3081-8dfe-46a6-b077-46081f26571d",
+      "success": true,
+      "summary": "Bilibili Video Analysis Report",
+      "outputs": [
+        {
+          "name": "analysis-report.md",
+          "type": "md",
+          "path": "analysis-report.md",
+          "description": "3.5 KB"
+        },
+        {
+          "name": "cover.jpg",
+          "type": "jpg",
+          "path": "cover.jpg",
+          "description": "478.6 KB"
+        },
+        {
+          "name": "video-metadata.json",
+          "type": "json",
+          "path": "video-metadata.json",
+          "description": "2.7 KB"
+        },
+        {
+          "name": "webfetch_results.md",
+          "type": "md",
+          "path": "webfetch_results.md",
+          "description": "18.9 KB"
+        },
+        {
+          "name": "webpage_results.txt",
+          "type": "txt",
+          "path": "webpage_results.txt",
+          "description": "69.9 KB"
+        },
+        {
+          "name": "web_scraper.py",
+          "type": "py",
+          "path": "web_scraper.py",
+          "description": "20.7 KB"
+        }
+      ]
+    },
+    "uploadedAt": "2026-02-28T17:45:37.475Z"
+  },
+  "completedAt": "2026-02-28T17:45:37.475Z"
 }

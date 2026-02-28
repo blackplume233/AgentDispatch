@@ -4,6 +4,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { IPCClient } from '../../src/ipc/ipc-client.js';
 
+function testIpcPath(label: string): string {
+  if (os.platform() === 'win32') {
+    return `\\\\.\\pipe\\dispatch-test-${label}-${Date.now()}`;
+  }
+  return path.join(os.tmpdir(), `ipc-${label}-${Date.now()}.sock`);
+}
+
 describe('IPCClient', () => {
   let server: net.Server | null = null;
   let socketPath: string;
@@ -16,7 +23,7 @@ describe('IPCClient', () => {
   });
 
   it('should send command and receive response', async () => {
-    socketPath = path.join(os.tmpdir(), `cli-test-${Date.now()}.sock`);
+    socketPath = testIpcPath('cli');
 
     await new Promise<void>((resolve) => {
       server = net.createServer((socket) => {
@@ -24,7 +31,7 @@ describe('IPCClient', () => {
         socket.on('data', (data) => {
           buf += data.toString();
           if (buf.includes('\n')) {
-            const msg = JSON.parse(buf.split('\n')[0]!) as { id: string; command: string };
+            const msg = JSON.parse(buf.split('\n')[0] as string) as { id: string; command: string };
             const response =
               JSON.stringify({
                 id: msg.id,
@@ -36,7 +43,7 @@ describe('IPCClient', () => {
           }
         });
       });
-      server!.listen(socketPath, resolve);
+      (server as net.Server).listen(socketPath, resolve);
     });
 
     const client = new IPCClient(socketPath);

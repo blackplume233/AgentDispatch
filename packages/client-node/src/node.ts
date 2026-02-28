@@ -12,6 +12,10 @@ import { AcpController } from './acp/acp-controller.js';
 import { WorkerManager } from './agents/worker-manager.js';
 
 export class ClientNode {
+  private static readonly HEARTBEAT_FAIL_THRESHOLD = 3;
+  private static readonly RECONNECT_BASE_DELAY = 2000;
+  private static readonly RECONNECT_MAX_DELAY = 30000;
+
   private config: ClientConfig;
   private httpClient: ServerHttpClient;
   private ipcServer: IPCServer;
@@ -25,6 +29,9 @@ export class ClientNode {
   private dispatching = false;
   private clientLogBuffer: ClientLogEntry[] = [];
   private taskOutputDirs: Map<string, string> = new Map();
+  private consecutiveHeartbeatFailures = 0;
+  private reconnecting = false;
+  private stopped = false;
 
   constructor(config: ClientConfig) {
     this.config = config;
@@ -131,6 +138,7 @@ export class ClientNode {
   }
 
   async stop(): Promise<void> {
+    this.stopped = true;
     this.poller.stop();
     this.stopHeartbeat();
     await this.acpController.stopAll();
@@ -464,14 +472,85 @@ export class ClientNode {
   }
 
   private startHeartbeat(): void {
+    this.consecutiveHeartbeatFailures = 0;
     this.heartbeatTimer = setInterval(() => {
-      if (this.client) {
-        void this.httpClient.heartbeat(this.client.id, {
-          agents: this.buildAgentInfos(),
-        }).catch(() => {});
-        this.flushClientLogs();
-      }
+      void this.doHeartbeat();
     }, this.config.heartbeat.interval);
+  }
+
+  private async doHeartbeat(): Promise<void> {
+    if (!this.client || this.reconnecting) return;
+    try {
+      await this.httpClient.heartbeat(this.client.id, {
+        agents: this.buildAgentInfos(),
+      });
+      if (this.consecutiveHeartbeatFailures > 0) {
+        this.log(`Heartbeat recovered after ${this.consecutiveHeartbeatFailures} failures`);
+      }
+      this.consecutiveHeartbeatFailures = 0;
+      this.flushClientLogs();
+    } catch {
+      this.consecutiveHeartbeatFailures++;
+      this.log(`Heartbeat failed (${this.consecutiveHeartbeatFailures}/${ClientNode.HEARTBEAT_FAIL_THRESHOLD})`);
+      if (this.consecutiveHeartbeatFailures >= ClientNode.HEARTBEAT_FAIL_THRESHOLD) {
+        void this.reconnect();
+      }
+    }
+  }
+
+  private async reconnect(): Promise<void> {
+    if (this.reconnecting || this.stopped) return;
+    this.reconnecting = true;
+    this.poller.stop();
+    this.log('Connection lost, attempting to reconnect...');
+
+    let delay = ClientNode.RECONNECT_BASE_DELAY;
+    while (!this.stopped) {
+      try {
+        this.client = await this.httpClient.registerClient({
+          name: this.config.name,
+          host: os.hostname(),
+          tags: this.config.tags,
+          dispatchMode: this.config.dispatchMode,
+          agents: this.config.agents.map((a) => ({
+            id: a.id,
+            type: a.type,
+            command: a.command,
+            workDir: a.workDir,
+            capabilities: a.capabilities,
+          })),
+        });
+        this.acpController.setClientId(this.client.id);
+        this.consecutiveHeartbeatFailures = 0;
+        this.reconnecting = false;
+        this.poller.start();
+        this.log(`Reconnected as ${this.client.id}`);
+        this.recordClientLog('info', 'node.reconnected', `Reconnected as ${this.client.id}`);
+        return;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('already registered')) {
+          try {
+            const clients = await this.httpClient.listClients();
+            const existing = clients.find((c) => c.name === this.config.name);
+            if (existing) {
+              this.client = existing;
+              this.acpController.setClientId(this.client.id);
+              this.consecutiveHeartbeatFailures = 0;
+              this.reconnecting = false;
+              this.poller.start();
+              this.log(`Reconnected (reused) as ${this.client.id}`);
+              this.recordClientLog('info', 'node.reconnected', `Reconnected (reused) as ${this.client.id}`);
+              return;
+            }
+          } catch { /* fall through to retry */ }
+        }
+        this.log(`Reconnect failed: ${msg}, retrying in ${(delay / 1000).toFixed(1)}s...`);
+        await new Promise((r) => setTimeout(r, delay));
+        delay = Math.min(delay * 2, ClientNode.RECONNECT_MAX_DELAY);
+      }
+    }
+    this.reconnecting = false;
   }
 
   private stopHeartbeat(): void {
