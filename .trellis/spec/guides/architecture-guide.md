@@ -235,9 +235,10 @@ Manager Agent 通过 ACP 与 ClientNode Core 通信，职责**仅限于**：
 
 5. [Worker] 完成任务 — ClientNode 自动收集产物
    → ACP session 结束（Worker 的 prompt 返回）
-   → ClientNode handleTaskCompletion 扫描任务隔离 workDir
-   → 自动 zip 全部文件 + 生成 result.json
+   → ClientNode handleTaskCompletion 扫描 outputDir（{workDir}/.dispatch/output/{taskId}/）
+   → 自动 zip outputDir 中的文件 + 生成 result.json
    → HTTP 上传到 Server (completeTask)
+   → ⚠️ session cwd 是 Agent 原始 workDir（保留 Agent 上下文），不是 outputDir
 
 6. [Server] 校验产物
    → 检查 zip + result.json 存在性、格式、必填字段

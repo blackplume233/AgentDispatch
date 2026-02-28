@@ -232,15 +232,17 @@ async readTextFile(params: ReadTextFileRequest) {
 
 **Fix**: 使用流式缓冲区（textBuffer/thinkingBuffer）聚合 chunk，在结构化事件边界（tool_call / plan / flush / destroy）时才 flush 为完整消息。
 
-### 陷阱 3: Worker 产物跨任务污染
+### 陷阱 3: Worker 产物跨任务污染 / Agent 丢失上下文
 
-**症状**: 第二个任务的产物 zip 里包含了第一个任务的文件
+**症状 A**: 第二个任务的产物 zip 里包含了第一个任务的文件
+**症状 B**: Agent 找不到自己的 skills、rules 或 MCP 配置
 
-**原因**: 同一个 Agent Worker 的 `workDir` 是固定的。如果连续执行两个任务都用同一个 workDir，第二次 `collectArtifacts` 会把第一次的残留文件一起打包。
+**原因 A**: 如果 `collectArtifacts` 扫描整个 `workDir`，会把其他任务的残留文件和 Agent 自身文件一起打包。
+**原因 B**: 如果把 ACP session `cwd` 改成隔离子目录，Agent 就脱离了自己的工作环境（skills、`AGENTS.md`、`.cursor/rules/` 等都在原始 `workDir` 中）。
 
 **涉及层**: ClientNode (node.ts dispatchPendingTasks) → ACP (session cwd) → ClientNode (collectArtifacts)
 
-**Fix**: 为每个任务在 `{workDir}/tasks/{taskId.slice(0,12)}/` 创建隔离子目录，ACP session 的 cwd 指向该子目录。
+**Fix**: ACP session `cwd` 保持 Agent 原始 `workDir` 不变；为每个任务创建产物输出目录 `{workDir}/.dispatch/output/{taskId.slice(0,12)}/`；prompt 中指示 Agent 将输出写到该目录；`collectArtifacts` 只扫描该目录。
 
 ### 陷阱 4: CJS 依赖在 ESM 构建中崩溃
 

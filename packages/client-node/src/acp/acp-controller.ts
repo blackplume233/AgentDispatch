@@ -30,7 +30,7 @@ export class AcpController {
     // Reserved for future use (e.g. passing client context to agents)
   }
 
-  async launchAgent(agentConfig: AgentConfig, task: Task): Promise<void> {
+  async launchAgent(agentConfig: AgentConfig, task: Task, outputDir?: string): Promise<void> {
     const agentProcess = new AgentProcess(agentConfig, {
       onExit: (code, signal) => {
         this.processes.delete(agentConfig.id);
@@ -68,7 +68,9 @@ export class AcpController {
     // Record the prompt as a log entry
     acpClient.flushLogs();
 
-    void this.runAcpSession(agentConfig, task, connection, acpClient).catch((err) => {
+    this.events.onProgress(agentConfig.id, task.id, 'Initializing agent...');
+
+    void this.runAcpSession(agentConfig, task, connection, acpClient, outputDir).catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
       this.events.onAgentError(agentConfig.id, `ACP session error: ${msg}`);
     });
@@ -79,6 +81,7 @@ export class AcpController {
     task: Task,
     connection: ClientSideConnection,
     acpClient: DispatchAcpClient,
+    outputDir?: string,
   ): Promise<void> {
     try {
       const caps = agentConfig.acpCapabilities;
@@ -111,7 +114,7 @@ export class AcpController {
         throw sessionErr;
       }
 
-      const promptText = this.buildTaskPrompt(task);
+      const promptText = this.buildTaskPrompt(task, outputDir);
 
       acpClient.flushLogs();
 
@@ -134,7 +137,7 @@ export class AcpController {
     }
   }
 
-  private buildTaskPrompt(task: Task): string {
+  private buildTaskPrompt(task: Task, outputDir?: string): string {
     const parts = [`Task: ${task.title}`];
     if (task.description) {
       parts.push(`\nDescription:\n${task.description}`);
@@ -145,7 +148,11 @@ export class AcpController {
     if (task.metadata) {
       parts.push(`\nMetadata: ${JSON.stringify(task.metadata)}`);
     }
-    parts.push(`\nIMPORTANT: Write all output files to the current working directory. The files you create will be automatically collected as task artifacts.`);
+    if (outputDir) {
+      parts.push(`\nIMPORTANT — Artifact output directory:\nWrite ALL output files (results, reports, generated assets, etc.) to this directory:\n  ${outputDir}\nDo NOT write output files to the current working directory or other locations. Files outside the output directory will NOT be collected as task artifacts.`);
+    } else {
+      parts.push(`\nIMPORTANT: Write all output files to the current working directory. The files you create will be automatically collected as task artifacts.`);
+    }
     return parts.join('\n');
   }
 

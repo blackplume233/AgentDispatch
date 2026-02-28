@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { v4 as uuid } from 'uuid';
-import type { Client, ClientConfig, AgentConfig, Task, AgentInfo, InteractionLogEntry, ClientLogEntry } from '@agentdispatch/shared';
+import type { Client, ClientConfig, Task, AgentInfo, InteractionLogEntry, ClientLogEntry } from '@agentdispatch/shared';
 import { ServerHttpClient } from './http/server-client.js';
 import { IPCServer } from './ipc/ipc-server.js';
 import { TaskPoller } from './polling/task-poller.js';
@@ -24,7 +24,7 @@ export class ClientNode {
   private pendingTasks: Task[] = [];
   private dispatching = false;
   private clientLogBuffer: ClientLogEntry[] = [];
-  private taskWorkDirs: Map<string, string> = new Map();
+  private taskOutputDirs: Map<string, string> = new Map();
 
   constructor(config: ClientConfig) {
     this.config = config;
@@ -226,12 +226,11 @@ export class ClientNode {
 
           const agentCfg = this.config.agents.find((a) => a.id === decision.agentId);
           if (agentCfg) {
-            const taskWorkDir = path.join(agentCfg.workDir, 'tasks', task.id.slice(0, 12));
-            await fs.promises.mkdir(taskWorkDir, { recursive: true });
-            this.taskWorkDirs.set(task.id, taskWorkDir);
-            const isolatedCfg: AgentConfig = { ...agentCfg, workDir: taskWorkDir };
-            await this.acpController.launchAgent(isolatedCfg, task);
-            this.log(`Launched agent ${decision.agentId} for task ${task.id.slice(0, 8)} (workDir=${taskWorkDir})`);
+            const outputDir = path.join(agentCfg.workDir, '.dispatch', 'output', task.id.slice(0, 12));
+            await fs.promises.mkdir(outputDir, { recursive: true });
+            this.taskOutputDirs.set(task.id, outputDir);
+            await this.acpController.launchAgent(agentCfg, task, outputDir);
+            this.log(`Launched agent ${decision.agentId} for task ${task.id.slice(0, 8)} (outputDir=${outputDir})`);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -262,11 +261,9 @@ export class ClientNode {
           message: 'Collecting artifacts...',
         });
 
-        const taskWorkDir = this.taskWorkDirs.get(taskId);
-        const agentCfg = this.config.agents.find((a) => a.id === agentId);
-        const workDir = taskWorkDir ?? agentCfg?.workDir;
-        if (workDir) {
-          const { zipPath, resultPath } = await this.collectArtifacts(workDir, taskId);
+        const outputDir = this.taskOutputDirs.get(taskId);
+        if (outputDir) {
+          const { zipPath, resultPath } = await this.collectArtifacts(outputDir, taskId);
           if (zipPath && resultPath) {
             await this.httpClient.completeTask(taskId, { zipPath, resultPath });
             this.log(`Task ${taskId.slice(0, 8)} artifacts uploaded`);
@@ -279,7 +276,7 @@ export class ClientNode {
             });
           }
         }
-        this.taskWorkDirs.delete(taskId);
+        this.taskOutputDirs.delete(taskId);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         this.log(`Failed to upload artifacts for ${taskId.slice(0, 8)}: ${msg}`);
@@ -311,7 +308,7 @@ export class ClientNode {
 
     worker.status = 'idle';
     worker.currentTaskId = undefined;
-    this.taskWorkDirs.delete(taskId);
+    this.taskOutputDirs.delete(taskId);
 
     if (this.client) {
       try {

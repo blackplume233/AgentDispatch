@@ -722,21 +722,26 @@ private flushStreamBuffers(): void {
 - `flushLogs()` 被显式调用时 flush
 - `destroy()` 时 flush
 
-### 任务 WorkDir 隔离 [NEW 2026-02-28]
+### 任务产物隔离（保留 Agent 上下文） [CHANGED 2026-02-28]
 
-> **⚠️ 同一 Worker 连续执行多个任务时，前一个任务残留的文件会被后一个任务的 `collectArtifacts` 扫描打包，导致产物混淆。**
+> **⚠️ ACP session 的 `cwd` 必须是 Agent 注册时的 `workDir`，不能指向隔离子目录。**
+> Agent 的 skills、`AGENTS.md`、`.cursor/rules/`、MCP 配置等上下文文件都在 `workDir` 中，切换 cwd 会导致 Agent 丧失自身能力。
 
-**Pattern**: 为每个任务在 Agent 的 `workDir` 下创建隔离子目录：
+**Pattern**: cwd 不变，产物输出到专用隔离目录：
 
 ```
-{agentConfig.workDir}/tasks/{taskId.slice(0, 12)}/
+ACP session cwd = {agentConfig.workDir}          ← Agent 原始目录，保留所有上下文
+产物输出目录    = {workDir}/.dispatch/output/{taskId.slice(0, 12)}/
 ```
 
-- ACP `newSession` 的 `cwd` 指向此隔离目录
-- `collectArtifacts` 只扫描此目录
-- 任务完成后从 `taskWorkDirs` Map 中清理引用
+- ACP `newSession` 的 `cwd` **始终**是 Agent 注册的 `workDir`
+- Prompt 中明确告知 Agent 将输出文件写入 `outputDir`
+- `collectArtifacts` 只扫描 `outputDir`
+- 任务完成后从 `taskOutputDirs` Map 中清理引用
 
-**不要**：直接使用 `agentConfig.workDir` 作为 session cwd。
+**不要**：
+- 用 `workDir` 子目录作为 ACP session cwd（Agent 会丢失上下文）
+- 扫描整个 `workDir` 收集产物（会混入 Agent 自身文件和其他任务残留）
 
 ### 进度汇报用状态描述，不用百分比 [NEW 2026-02-28]
 

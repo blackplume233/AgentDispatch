@@ -24,21 +24,29 @@ import { useArtifactFiles } from "@/hooks/use-artifact-files";
 import { api } from "@/api/client";
 import type { InteractionLogEntry, InteractionStepType, ArtifactFileEntry } from "@/types";
 
-const MERGEABLE_TYPES = new Set<InteractionStepType>(["text", "thinking", "prompt"]);
+const STREAM_TYPES = new Set<InteractionStepType>(["text", "thinking", "prompt"]);
+const TOOL_TYPES = new Set<InteractionStepType>(["tool_call", "tool_call_update"]);
+
+function isMergeable(a: InteractionLogEntry, b: InteractionLogEntry): boolean {
+  if (a.metadata?.sessionId !== b.metadata?.sessionId) return false;
+  if (a.type === b.type && STREAM_TYPES.has(a.type)) return true;
+  if (TOOL_TYPES.has(a.type) && TOOL_TYPES.has(b.type)) return true;
+  return false;
+}
 
 function mergeLogs(entries: InteractionLogEntry[]): InteractionLogEntry[] {
   if (entries.length === 0) return entries;
   const merged: InteractionLogEntry[] = [];
-  let current = entries[0]!;
+  let current = entries[0] as InteractionLogEntry;
 
   for (let i = 1; i < entries.length; i++) {
-    const entry = entries[i]!;
-    if (
-      entry.type === current.type &&
-      MERGEABLE_TYPES.has(entry.type) &&
-      entry.metadata?.sessionId === current.metadata?.sessionId
-    ) {
-      current = { ...current, content: current.content + entry.content };
+    const entry = entries[i] as InteractionLogEntry;
+    if (isMergeable(current, entry)) {
+      if (TOOL_TYPES.has(current.type)) {
+        current = { ...current, content: current.content + "\n" + entry.content };
+      } else {
+        current = { ...current, content: current.content + entry.content };
+      }
     } else {
       merged.push(current);
       current = entry;

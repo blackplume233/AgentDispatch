@@ -36,6 +36,7 @@ export interface ProgressCallback {
 
 const LOG_FLUSH_INTERVAL = 2000;
 const LOG_BATCH_SIZE = 20;
+const PROGRESS_THROTTLE_MS = 3000;
 
 export class DispatchAcpClient implements AcpClient {
   private agentConfig: AgentConfig;
@@ -51,6 +52,8 @@ export class DispatchAcpClient implements AcpClient {
   private promptBuffer: string = '';
   private currentSessionId: string = '';
   private flushingStreams: boolean = false;
+  private lastProgressTime: number = 0;
+  private lastProgressText: string = '';
 
   constructor(agentConfig: AgentConfig, onLogBatch: LogBatchCallback, onProgress?: ProgressCallback) {
     this.agentConfig = agentConfig;
@@ -86,10 +89,14 @@ export class DispatchAcpClient implements AcpClient {
     }
   }
 
-  private notifyProgress(status: string): void {
-    if (this.onProgress) {
-      this.onProgress(status);
-    }
+  private notifyProgress(status: string, force?: boolean): void {
+    if (!this.onProgress) return;
+    const now = Date.now();
+    if (!force && status === this.lastProgressText) return;
+    if (!force && now - this.lastProgressTime < PROGRESS_THROTTLE_MS) return;
+    this.lastProgressTime = now;
+    this.lastProgressText = status;
+    this.onProgress(status);
   }
 
   destroy(): void {
@@ -136,12 +143,14 @@ export class DispatchAcpClient implements AcpClient {
         const text = update.content?.type === 'text' ? (update.content as { text: string }).text : '';
         this.currentSessionId = sessionId;
         this.textBuffer += text;
+        this.notifyProgress('Responding...');
         break;
       }
       case 'agent_thought_chunk': {
         const text = update.content?.type === 'text' ? (update.content as { text: string }).text : '';
         this.currentSessionId = sessionId;
         this.thinkingBuffer += text;
+        this.notifyProgress('Thinking...');
         break;
       }
       case 'user_message_chunk': {
@@ -153,7 +162,7 @@ export class DispatchAcpClient implements AcpClient {
       case 'tool_call': {
         this.flushStreamBuffers();
         const tc = update as unknown as { toolCallId: string; title: string; kind?: string; status?: string };
-        this.notifyProgress(`Calling: ${tc.title ?? 'tool'}`);
+        this.notifyProgress(`Calling: ${tc.title ?? 'tool'}`, true);
         this.record('tool_call', tc.title ?? 'tool_call', {
           sessionUpdate: update.sessionUpdate,
           toolCallId: tc.toolCallId,
@@ -172,9 +181,9 @@ export class DispatchAcpClient implements AcpClient {
         this.flushStreamBuffers();
         const tcu = update as unknown as { toolCallId: string; title?: string; kind?: string; status?: string };
         if (tcu.status === 'completed') {
-          this.notifyProgress(`Done: ${tcu.title ?? 'tool'}`);
+          this.notifyProgress(`Done: ${tcu.title ?? 'tool'}`, true);
         } else if (tcu.status) {
-          this.notifyProgress(`${tcu.title ?? 'tool'} (${tcu.status})`);
+          this.notifyProgress(`${tcu.title ?? 'tool'} (${tcu.status})`, true);
         }
         this.record('tool_call_update', tcu.title ?? `tool_call_update ${tcu.toolCallId}`, {
           sessionUpdate: update.sessionUpdate,
