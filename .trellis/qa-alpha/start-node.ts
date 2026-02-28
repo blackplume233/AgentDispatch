@@ -1,26 +1,22 @@
 /**
- * QA Environment — Real ClientNode Launcher
+ * QA Environment — Real ClientNode Launcher (ACP Mode)
  *
- * Starts a real ClientNode instance with:
- * - Real ServerHttpClient (HTTP to server)
- * - Real Dispatcher (tag-based task matching)
- * - Real WorkerManager (worker lifecycle tracking)
- * - Real AcpController (spawns worker child processes)
- * - Real IPCServer (Unix socket for CLI communication)
- * - Real TaskPoller (periodic server polling)
- * - Real heartbeat (periodic status reporting)
+ * Starts a real ClientNode with ACP-based agent communication:
+ * - Agents communicate ONLY via ACP protocol (stdin/stdout ndjson)
+ * - ClientNode records all interactions and uploads logs to Server
+ * - No direct Worker-to-Server communication
  *
- * Workers are actual child processes (worker.ts) that:
- * - Generate real files (analysis.md, output.txt)
- * - Package real zip artifacts
- * - Submit real result.json
+ * Agent types:
+ * - claude-agent-acp: Claude Agent via ACP adapter (requires ANTHROPIC_API_KEY)
+ *   Install: npm install -g @zed-industries/claude-agent-acp
+ * - opencode acp: OpenCode with native ACP support (future)
  */
 
 import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { ClientNode, loadClientConfig } from '../../packages/client-node/dist/index.js';
+import { ClientNode } from '../../packages/client-node/dist/index.js';
 import type { ClientConfig, AgentConfig } from '../../packages/shared/dist/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -33,28 +29,36 @@ const HEARTBEAT_INTERVAL = Number(process.env['HEARTBEAT_INTERVAL'] ?? '10000');
 const WORK_BASE = path.join(os.tmpdir(), 'agentdispatch-qa');
 fs.mkdirSync(WORK_BASE, { recursive: true });
 
-const workerScript = path.resolve(__dirname, 'worker.ts');
-const tsxBin = path.resolve(__dirname, '../../node_modules/.bin/tsx');
-
-function makeAgentConfig(id: string, capabilities: string[]): AgentConfig {
-  const workDir = path.join(WORK_BASE, id);
-  fs.mkdirSync(workDir, { recursive: true });
-  return {
-    id,
-    type: 'worker',
-    command: `${tsxBin} ${workerScript}`,
-    args: [],
-    workDir,
-    capabilities,
-    autoClaimTags: capabilities.slice(0, 1),
-    permissionPolicy: 'auto-allow',
-  };
-}
-
 const agents: AgentConfig[] = [
-  makeAgentConfig('worker-code', ['code', 'typescript', 'react']),
-  makeAgentConfig('worker-docs', ['docs', 'testing', 'devops']),
-  makeAgentConfig('worker-media', ['video', 'analysis', 'ffmpeg', 'multimodal']),
+  {
+    id: 'worker-claude',
+    type: 'worker',
+    command: 'claude-agent-acp',
+    args: [],
+    workDir: (() => { const d = path.join(WORK_BASE, 'claude'); fs.mkdirSync(d, { recursive: true }); return d; })(),
+    capabilities: ['code', 'docs', 'analysis'],
+    autoClaimTags: ['code'],
+    permissionPolicy: 'auto-allow',
+    acpCapabilities: {
+      fs: { readTextFile: true, writeTextFile: true },
+      terminal: true,
+    },
+  },
+  // Uncomment to add OpenCode (native ACP support):
+  // {
+  //   id: 'worker-opencode',
+  //   type: 'worker',
+  //   command: 'opencode',
+  //   args: ['acp'],
+  //   workDir: (() => { const d = path.join(WORK_BASE, 'opencode'); fs.mkdirSync(d, { recursive: true }); return d; })(),
+  //   capabilities: ['code', 'docs'],
+  //   autoClaimTags: ['docs'],
+  //   permissionPolicy: 'auto-allow',
+  //   acpCapabilities: {
+  //     fs: { readTextFile: true, writeTextFile: true },
+  //     terminal: true,
+  //   },
+  // },
 ];
 
 const ipcPath = os.platform() === 'win32'

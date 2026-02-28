@@ -20,3 +20,16 @@ export interface AuditLogEntry {
   };
   duration?: number;
 }
+
+export interface ClientLogEntry {
+  id: string;
+  timestamp: string;
+  level: LogLevel;
+  event: string;
+  message: string;
+  context?: {
+    taskId?: string;
+    agentId?: string;
+    [key: string]: unknown;
+  };
+}

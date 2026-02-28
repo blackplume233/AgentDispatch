@@ -21,6 +21,8 @@ export interface Task {
       success: boolean;
       summary: string;
       outputs: Array<{ name: string; type: string; path: string; description?: string }>;
+      errors?: string[];
+      metrics?: Record<string, number>;
     };
     uploadedAt: string;
   };
@@ -56,4 +58,60 @@ export interface CreateTaskInput {
   description?: string;
   tags: string[];
   priority?: TaskPriority;
+}
+
+// --- Interaction Logs ---
+
+export type InteractionStepType =
+  | 'prompt'
+  | 'thinking'
+  | 'text'
+  | 'tool_call'
+  | 'tool_call_update'
+  | 'permission'
+  | 'fs_read'
+  | 'fs_write'
+  | 'terminal'
+  | 'plan'
+  | 'error'
+  | 'system';
+
+export interface InteractionLogEntry {
+  id: string;
+  timestamp: string;
+  type: InteractionStepType;
+  content: string;
+  raw?: Record<string, unknown>;
+  metadata?: {
+    toolCallId?: string;
+    toolName?: string;
+    toolKind?: string;
+    status?: string;
+    filePath?: string;
+    sessionId?: string;
+    stopReason?: string;
+  };
+}
+
+// --- Client Logs ---
+
+export interface ClientLogEntry {
+  id: string;
+  timestamp: string;
+  level: 'error' | 'warn' | 'info' | 'debug';
+  event: string;
+  message: string;
+  context?: {
+    taskId?: string;
+    agentId?: string;
+    [key: string]: unknown;
+  };
+}
+
+// --- Artifact Files ---
+
+export interface ArtifactFileEntry {
+  path: string;
+  size: number;
+  isText: boolean;
 }

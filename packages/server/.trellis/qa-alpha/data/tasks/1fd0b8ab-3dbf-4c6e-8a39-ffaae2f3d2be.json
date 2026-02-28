@@ -1,0 +1,56 @@
+{
+  "id": "1fd0b8ab-3dbf-4c6e-8a39-ffaae2f3d2be",
+  "title": "Bilibili BV1MEAYzcEe8 Video Analysis",
+  "description": "## Task\nAnalyze the Bilibili video at https://www.bilibili.com/video/BV1MEAYzcEe8/\n\n## Steps\n1. Use curl to fetch video metadata from Bilibili API: https://api.bilibili.com/x/web-interface/view?bvid=BV1MEAYzcEe8\n2. Extract key information: title, UP author, views, likes, danmaku count, description, tags\n3. Download the video cover image using the pic URL from the API response\n4. Write a comprehensive analysis report\n\n## Output Files (write all to current directory)\n- video-metadata.json: Raw API response data\n- analysis-report.md: Complete analysis report in Markdown\n- cover.jpg: Video cover image (download from pic URL in metadata)",
+  "status": "completed",
+  "tags": [
+    "analysis",
+    "code"
+  ],
+  "priority": "normal",
+  "metadata": {
+    "bvid": "BV1MEAYzcEe8",
+    "source": "qa-e2e-test-v2"
+  },
+  "createdAt": "2026-02-28T17:00:31.218Z",
+  "updatedAt": "2026-02-28T17:07:37.171Z",
+  "claimedBy": {
+    "clientId": "4d999d2a-5bfa-4c09-b87f-c1a8f633a7bd",
+    "agentId": "worker-claude"
+  },
+  "claimedAt": "2026-02-28T17:06:36.443Z",
+  "progress": 100,
+  "progressMessage": "Collecting artifacts...",
+  "artifacts": {
+    "zipFile": "artifacts\\1fd0b8ab-3dbf-4c6e-8a39-ffaae2f3d2be\\artifact.zip",
+    "zipSizeBytes": 490646,
+    "zipHash": "9a0fe5fa898fdcb3ad5a5ddf9b7cb2f3108b9dbf20c0fc4c5819485c79849fa6",
+    "resultJson": {
+      "taskId": "1fd0b8ab-3dbf-4c6e-8a39-ffaae2f3d2be",
+      "success": true,
+      "summary": "Bilibili Video Analysis Report",
+      "outputs": [
+        {
+          "name": "analysis-report.md",
+          "type": "md",
+          "path": "analysis-report.md",
+          "description": "3.5 KB"
+        },
+        {
+          "name": "cover.jpg",
+          "type": "jpg",
+          "path": "cover.jpg",
+          "description": "478.6 KB"
+        },
+        {
+          "name": "video-metadata.json",
+          "type": "json",
+          "path": "video-metadata.json",
+          "description": "2.7 KB"
+        }
+      ]
+    },
+    "uploadedAt": "2026-02-28T17:07:37.171Z"
+  },
+  "completedAt": "2026-02-28T17:07:37.171Z"
+}

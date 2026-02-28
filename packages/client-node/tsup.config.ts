@@ -6,5 +6,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: true,
-  external: ['@agentdispatch/shared'],
+  external: ['@agentdispatch/shared', 'adm-zip'],
 });

@@ -60,3 +60,44 @@ export const VALID_TASK_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
 export function isValidTransition(from: TaskStatus, to: TaskStatus): boolean {
   return VALID_TASK_TRANSITIONS[from].includes(to);
 }
+
+// --- Interaction Log Types (ACP session recording) ---
+
+export type InteractionStepType =
+  | 'prompt'
+  | 'thinking'
+  | 'text'
+  | 'tool_call'
+  | 'tool_call_update'
+  | 'permission'
+  | 'fs_read'
+  | 'fs_write'
+  | 'terminal'
+  | 'plan'
+  | 'error'
+  | 'system';
+
+export interface InteractionLogEntry {
+  id: string;
+  timestamp: string;
+  type: InteractionStepType;
+  content: string;
+  raw?: Record<string, unknown>;
+  metadata?: {
+    toolCallId?: string;
+    toolName?: string;
+    toolKind?: string;
+    status?: string;
+    filePath?: string;
+    sessionId?: string;
+    stopReason?: string;
+  };
+}
+
+// --- Artifact File Entry (zip contents listing) ---
+
+export interface ArtifactFileEntry {
+  path: string;
+  size: number;
+  isText: boolean;
+}

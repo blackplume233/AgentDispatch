@@ -1,4 +1,4 @@
-import type { Task, Client, CreateTaskInput } from "@/types";
+import type { Task, Client, CreateTaskInput, InteractionLogEntry, ClientLogEntry, ArtifactFileEntry } from "@/types";
 
 const BASE = "/api/v1";
 
@@ -31,5 +31,30 @@ export const api = {
   clients: {
     list: (): Promise<Client[]> => request<Client[]>("GET", "/clients"),
     get: (id: string): Promise<Client> => request<Client>("GET", `/clients/${id}`),
+  },
+  taskLogs: {
+    list: (taskId: string, afterId?: string): Promise<InteractionLogEntry[]> => {
+      const qs = afterId ? `?after=${afterId}` : "";
+      return request<InteractionLogEntry[]>("GET", `/tasks/${taskId}/logs${qs}`);
+    },
+  },
+  clientLogs: {
+    list: (clientId: string, afterId?: string): Promise<ClientLogEntry[]> => {
+      const qs = afterId ? `?after=${afterId}` : "";
+      return request<ClientLogEntry[]>("GET", `/clients/${clientId}/logs${qs}`);
+    },
+  },
+  artifacts: {
+    listFiles: (taskId: string): Promise<ArtifactFileEntry[]> =>
+      request<ArtifactFileEntry[]>("GET", `/tasks/${taskId}/artifacts/files`),
+    getFileContent: async (taskId: string, filePath: string): Promise<string> => {
+      const res = await fetch(`${BASE}/tasks/${taskId}/artifacts/files/${filePath}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.text();
+    },
+    downloadZipUrl: (taskId: string): string =>
+      `${BASE}/tasks/${taskId}/artifacts/download`,
+    downloadFileUrl: (taskId: string, filePath: string): string =>
+      `${BASE}/tasks/${taskId}/artifacts/files/${filePath}`,
   },
 };

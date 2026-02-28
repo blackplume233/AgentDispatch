@@ -70,18 +70,7 @@ export class WorkerManager {
 
     if (worker.restartCount < worker.maxRestarts) {
       worker.restartCount++;
-      worker.status = 'restarting';
-      const config = this.configs.get(agentId);
-      if (config) {
-        void this.controller
-          .launchAgent(config)
-          .then(() => {
-            worker.status = 'idle';
-          })
-          .catch(() => {
-            worker.status = 'crashed';
-          });
-      }
+      worker.status = 'idle';
     }
   }
 

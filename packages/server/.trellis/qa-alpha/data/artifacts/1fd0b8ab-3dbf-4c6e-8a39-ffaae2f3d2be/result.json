@@ -1,0 +1,25 @@
+{
+  "taskId": "1fd0b8ab-3dbf-4c6e-8a39-ffaae2f3d2be",
+  "success": true,
+  "summary": "Bilibili Video Analysis Report",
+  "outputs": [
+    {
+      "name": "analysis-report.md",
+      "type": "md",
+      "path": "analysis-report.md",
+      "description": "3.5 KB"
+    },
+    {
+      "name": "cover.jpg",
+      "type": "jpg",
+      "path": "cover.jpg",
+      "description": "478.6 KB"
+    },
+    {
+      "name": "video-metadata.json",
+      "type": "json",
+      "path": "video-metadata.json",
+      "description": "2.7 KB"
+    }
+  ]
+}

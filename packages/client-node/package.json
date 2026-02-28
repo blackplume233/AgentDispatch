@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsup && cp -r src/templates dist/",
+    "build": "tsup && node -e \"const fs=require('fs');fs.cpSync('src/templates','dist/templates',{recursive:true})\"",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "test": "vitest run",
@@ -14,17 +14,19 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "^0.14.1",
     "@agentdispatch/shared": "workspace:*",
-    "zod": "^3.25.0",
-    "uuid": "^11.0.0"
+    "uuid": "^11.0.0",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
     "@types/node": "catalog:",
     "@types/uuid": "^10.0.0",
-    "typescript": "catalog:",
-    "tsup": "catalog:",
-    "vitest": "catalog:",
     "eslint": "catalog:",
-    "tsx": "catalog:"
+    "tsup": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

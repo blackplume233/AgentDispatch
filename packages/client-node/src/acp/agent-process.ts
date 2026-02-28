@@ -32,6 +32,7 @@ export class AgentProcess {
       cwd: this.config.workDir,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...this.extraEnv },
+      shell: process.platform === 'win32',
     });
 
     this.process.stderr?.on('data', (data: Buffer) => {

@@ -1,6 +1,9 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { TaskService } from '../services/task-service.js';
 import type { ArtifactService } from '../services/artifact-service.js';
+import type { LogStore } from '../store/log-store.js';
 import type {
   TaskStatus,
   CreateTaskDTO,
@@ -9,10 +12,16 @@ import type {
   ReleaseTaskDTO,
   ProgressDTO,
   CancelTaskDTO,
+  AppendTaskLogsDTO,
 } from '@agentdispatch/shared';
 import { ValidationError, ErrorCode } from '@agentdispatch/shared';
 
-export function registerTaskRoutes(app: FastifyInstance, taskService: TaskService, artifactService: ArtifactService): void {
+export function registerTaskRoutes(
+  app: FastifyInstance,
+  taskService: TaskService,
+  artifactService: ArtifactService,
+  logStore: LogStore,
+): void {
   app.post<{ Body: CreateTaskDTO }>('/api/v1/tasks', async (request, reply) => {
     const task = await taskService.createTask(request.body);
     return reply.code(201).send(task);
@@ -96,6 +105,86 @@ export function registerTaskRoutes(app: FastifyInstance, taskService: TaskServic
       );
       const task = await taskService.completeTask(request.params.id, artifacts);
       return reply.send(task);
+    },
+  );
+
+  // --- Task interaction logs ---
+
+  app.post<{ Params: { id: string }; Body: AppendTaskLogsDTO }>(
+    '/api/v1/tasks/:id/logs',
+    async (request, reply) => {
+      await taskService.getTask(request.params.id);
+      await logStore.appendTaskLogs(request.params.id, request.body.entries);
+      return reply.code(204).send();
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { after?: string } }>(
+    '/api/v1/tasks/:id/logs',
+    async (request) => {
+      await taskService.getTask(request.params.id);
+      return logStore.getTaskLogs(request.params.id, request.query.after);
+    },
+  );
+
+  // --- Artifact endpoints ---
+
+  app.get<{ Params: { id: string } }>(
+    '/api/v1/tasks/:id/artifacts/download',
+    async (request, reply) => {
+      const task = await taskService.getTask(request.params.id);
+      if (!task.artifacts) {
+        throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'Task has no artifacts');
+      }
+      const zipPath = artifactService.getZipPath(request.params.id);
+      const stream = fs.createReadStream(zipPath);
+      return reply
+        .header('Content-Type', 'application/zip')
+        .header('Content-Disposition', `attachment; filename="${request.params.id}.zip"`)
+        .send(stream);
+    },
+  );
+
+  app.get<{ Params: { id: string } }>(
+    '/api/v1/tasks/:id/artifacts/files',
+    async (request) => {
+      const task = await taskService.getTask(request.params.id);
+      if (!task.artifacts) {
+        throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'Task has no artifacts');
+      }
+      return artifactService.listFiles(request.params.id);
+    },
+  );
+
+  app.get<{ Params: { id: string; '*': string } }>(
+    '/api/v1/tasks/:id/artifacts/files/*',
+    async (request, reply) => {
+      const task = await taskService.getTask(request.params.id);
+      if (!task.artifacts) {
+        throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'Task has no artifacts');
+      }
+      const filePath = request.params['*'];
+      const { buffer, isText } = await artifactService.getFile(request.params.id, filePath);
+      const ext = path.extname(filePath).toLowerCase();
+
+      const mimeMap: Record<string, string> = {
+        '.json': 'application/json',
+        '.js': 'text/javascript',
+        '.ts': 'text/typescript',
+        '.html': 'text/html',
+        '.css': 'text/css',
+        '.md': 'text/markdown',
+        '.svg': 'image/svg+xml',
+        '.xml': 'application/xml',
+        '.yaml': 'text/yaml',
+        '.yml': 'text/yaml',
+      };
+      const contentType = isText ? (mimeMap[ext] ?? 'text/plain') : 'application/octet-stream';
+
+      return reply
+        .header('Content-Type', contentType)
+        .header('Content-Disposition', `inline; filename="${path.basename(filePath)}"`)
+        .send(buffer);
     },
   );
 }

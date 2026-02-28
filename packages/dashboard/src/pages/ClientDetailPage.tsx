@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Monitor, Clock } from "lucide-react";
+import { ArrowLeft, Monitor, Clock, ScrollText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,11 +9,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/common/status-badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { useClient } from "@/hooks/use-clients";
+import { useClientLogs } from "@/hooks/use-client-logs";
 
 export function ClientDetailPage() {
   const { t } = useTranslation();
   const { id = "" } = useParams<{ id: string }>();
   const { data: client, isLoading, error } = useClient(id);
+  const isOnline = client?.status === "online";
+  const { logs } = useClientLogs(id, isOnline);
 
   if (isLoading) {
     return (
@@ -150,6 +153,60 @@ export function ClientDetailPage() {
                             <Badge key={c} variant="secondary" className="font-normal text-xs">{c}</Badge>
                           ))}
                         </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Operation Logs */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ScrollText className="h-4 w-4" />
+            {t("clients.detail.operationLogs")}
+            {isOnline && (
+              <span className="ml-2 h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {logs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("clients.detail.noLogs")}</p>
+          ) : (
+            <div className="rounded-lg border overflow-auto max-h-96">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[140px]">{t("clients.detail.logTime")}</TableHead>
+                    <TableHead className="w-[60px]">{t("clients.detail.logLevel")}</TableHead>
+                    <TableHead className="w-[140px]">{t("clients.detail.logEvent")}</TableHead>
+                    <TableHead>{t("clients.detail.logMessage")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {logs.map((log) => (
+                    <TableRow key={log.id}>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                        {new Date(log.timestamp).toLocaleTimeString()}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={log.level === "error" ? "destructive" : log.level === "warn" ? "secondary" : "outline"}
+                          className="text-[10px] py-0"
+                        >
+                          {log.level}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <code className="text-xs">{log.event}</code>
+                      </TableCell>
+                      <TableCell className="text-xs max-w-[300px] truncate">
+                        {log.message}
                       </TableCell>
                     </TableRow>
                   ))}

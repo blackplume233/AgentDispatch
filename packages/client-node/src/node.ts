@@ -1,5 +1,9 @@
 import os from 'node:os';
-import type { Client, ClientConfig, Task, AgentInfo } from '@agentdispatch/shared';
+import fs from 'node:fs';
+import path from 'node:path';
+import AdmZip from 'adm-zip';
+import { v4 as uuid } from 'uuid';
+import type { Client, ClientConfig, AgentConfig, Task, AgentInfo, InteractionLogEntry, ClientLogEntry } from '@agentdispatch/shared';
 import { ServerHttpClient } from './http/server-client.js';
 import { IPCServer } from './ipc/ipc-server.js';
 import { TaskPoller } from './polling/task-poller.js';
@@ -19,6 +23,8 @@ export class ClientNode {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private pendingTasks: Task[] = [];
   private dispatching = false;
+  private clientLogBuffer: ClientLogEntry[] = [];
+  private taskWorkDirs: Map<string, string> = new Map();
 
   constructor(config: ClientConfig) {
     this.config = config;
@@ -32,16 +38,27 @@ export class ClientNode {
     this.acpController = new AcpController(config, {
       onAgentStarted: (agentId, pid) => {
         this.log(`Agent ${agentId} started (pid=${pid ?? 'unknown'})`);
+        this.recordClientLog('info', 'agent.started', `Agent ${agentId} started`, { agentId, pid });
       },
       onAgentExited: (agentId, code, signal) => {
         this.log(`Agent ${agentId} exited (code=${code}, signal=${signal})`);
         this.workerManager.handleWorkerExit(agentId, code);
+        this.recordClientLog('info', 'agent.exited', `Agent ${agentId} exited (code=${code})`, { agentId, code, signal });
       },
       onAgentError: (agentId, error) => {
         this.log(`Agent ${agentId} error: ${error}`);
+        this.recordClientLog('error', 'agent.error', error, { agentId });
       },
-      onStopReason: (agentId, taskId, reason) => {
-        this.log(`Agent ${agentId} task ${taskId} stop: ${reason}`);
+      onTaskCompleted: (agentId, taskId, stopReason) => {
+        this.log(`Agent ${agentId} task ${taskId} completed: ${stopReason}`);
+        this.recordClientLog('info', 'task.completed', `Task ${taskId} completed by ${agentId}: ${stopReason}`, { agentId, taskId, stopReason });
+        void this.handleTaskCompletion(agentId, taskId, stopReason);
+      },
+      onLogBatch: (agentId, taskId, entries) => {
+        void this.uploadTaskLogs(agentId, taskId, entries);
+      },
+      onProgress: (agentId, taskId, status) => {
+        void this.reportAgentProgress(agentId, taskId, status);
       },
     });
     this.workerManager = new WorkerManager(this.acpController, (taskId, reason) => {
@@ -64,22 +81,39 @@ export class ClientNode {
   }
 
   async register(): Promise<Client> {
-    this.client = await this.httpClient.registerClient({
-      name: this.config.name,
-      host: os.hostname(),
-      tags: this.config.tags,
-      dispatchMode: this.config.dispatchMode,
-      agents: this.config.agents.map((a) => ({
-        id: a.id,
-        type: a.type,
-        command: a.command,
-        workDir: a.workDir,
-        capabilities: a.capabilities,
-      })),
-    });
+    try {
+      this.client = await this.httpClient.registerClient({
+        name: this.config.name,
+        host: os.hostname(),
+        tags: this.config.tags,
+        dispatchMode: this.config.dispatchMode,
+        agents: this.config.agents.map((a) => ({
+          id: a.id,
+          type: a.type,
+          command: a.command,
+          workDir: a.workDir,
+          capabilities: a.capabilities,
+        })),
+      });
+      this.log(`Registered as ${this.client.id}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('already registered')) {
+        const clients = await this.httpClient.listClients();
+        const existing = clients.find((c) => c.name === this.config.name);
+        if (existing) {
+          this.client = existing;
+          this.log(`Re-using existing registration ${this.client.id}`);
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
 
-    this.log(`Registered as ${this.client.id}`);
     this.acpController.setClientId(this.client.id);
+    this.recordClientLog('info', 'node.registered', `Registered as ${this.client.id}`);
     this.startHeartbeat();
     this.poller.start();
     return this.client;
@@ -88,6 +122,7 @@ export class ClientNode {
   async unregister(): Promise<void> {
     if (this.client) {
       await this.httpClient.unregisterClient(this.client.id);
+      this.recordClientLog('info', 'node.unregistered', `Unregistered ${this.client.id}`);
       this.client = null;
     }
     this.stopHeartbeat();
@@ -100,6 +135,7 @@ export class ClientNode {
     this.stopHeartbeat();
     await this.acpController.stopAll();
     await this.ipcServer.stop();
+    this.flushClientLogs();
     this.log('Stopped');
   }
 
@@ -184,22 +220,250 @@ export class ClientNode {
             agentId: decision.agentId,
           });
           this.log(`Claimed task "${task.title}" → ${decision.agentId}`);
+          this.recordClientLog('info', 'task.claimed', `Claimed task "${task.title}" → ${decision.agentId}`, { taskId: task.id, agentId: decision.agentId });
 
           this.workerManager.assignTask(decision.agentId, task.id);
 
           const agentCfg = this.config.agents.find((a) => a.id === decision.agentId);
           if (agentCfg) {
-            await this.acpController.launchAgent(agentCfg, task);
-            this.log(`Launched agent ${decision.agentId} for task ${task.id.slice(0, 8)}`);
+            const taskWorkDir = path.join(agentCfg.workDir, 'tasks', task.id.slice(0, 12));
+            await fs.promises.mkdir(taskWorkDir, { recursive: true });
+            this.taskWorkDirs.set(task.id, taskWorkDir);
+            const isolatedCfg: AgentConfig = { ...agentCfg, workDir: taskWorkDir };
+            await this.acpController.launchAgent(isolatedCfg, task);
+            this.log(`Launched agent ${decision.agentId} for task ${task.id.slice(0, 8)} (workDir=${taskWorkDir})`);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
           this.log(`Claim/launch failed for task ${task.id.slice(0, 8)}: ${msg}`);
+          this.recordClientLog('error', 'task.claim_failed', msg, { taskId: task.id });
         }
       }
     } finally {
       this.dispatching = false;
     }
+  }
+
+  private async handleTaskCompletion(agentId: string, taskId: string, stopReason: string): Promise<void> {
+    const worker = this.workerManager.getWorkerState(agentId);
+    if (worker) {
+      worker.status = 'idle';
+      worker.currentTaskId = undefined;
+    }
+
+    if (!this.client) return;
+
+    if (stopReason === 'end_turn') {
+      try {
+        await this.httpClient.reportProgress(taskId, {
+          clientId: this.client.id,
+          agentId,
+          progress: 0,
+          message: 'Collecting artifacts...',
+        });
+
+        const taskWorkDir = this.taskWorkDirs.get(taskId);
+        const agentCfg = this.config.agents.find((a) => a.id === agentId);
+        const workDir = taskWorkDir ?? agentCfg?.workDir;
+        if (workDir) {
+          const { zipPath, resultPath } = await this.collectArtifacts(workDir, taskId);
+          if (zipPath && resultPath) {
+            await this.httpClient.completeTask(taskId, { zipPath, resultPath });
+            this.log(`Task ${taskId.slice(0, 8)} artifacts uploaded`);
+          } else {
+            await this.httpClient.reportProgress(taskId, {
+              clientId: this.client.id,
+              agentId,
+              progress: 0,
+              message: 'Completed (no artifacts)',
+            });
+          }
+        }
+        this.taskWorkDirs.delete(taskId);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.log(`Failed to upload artifacts for ${taskId.slice(0, 8)}: ${msg}`);
+        this.recordClientLog('error', 'task.artifact_upload_failed', msg, { taskId, agentId });
+      }
+    } else {
+      try {
+        await this.httpClient.releaseTask(taskId, {
+          clientId: this.client.id,
+          reason: `Agent stopped: ${stopReason}`,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.log(`Failed to release task ${taskId.slice(0, 8)}: ${msg}`);
+      }
+    }
+  }
+
+  async cancelRunningTask(taskId: string, reason: string): Promise<{ success: boolean; message: string }> {
+    const worker = this.workerManager.getAllWorkers().find((w) => w.currentTaskId === taskId);
+    if (!worker) {
+      return { success: false, message: `No worker found running task ${taskId}` };
+    }
+
+    this.log(`Cancelling task ${taskId.slice(0, 8)} on agent ${worker.agentId}: ${reason}`);
+    this.recordClientLog('info', 'task.cancelling', `Cancelling task ${taskId}: ${reason}`, { taskId, agentId: worker.agentId });
+
+    this.acpController.stopAgent(worker.agentId);
+
+    worker.status = 'idle';
+    worker.currentTaskId = undefined;
+    this.taskWorkDirs.delete(taskId);
+
+    if (this.client) {
+      try {
+        await this.httpClient.cancelTask(taskId, reason);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.log(`Failed to cancel task ${taskId.slice(0, 8)} on server: ${msg}`);
+      }
+    }
+
+    return { success: true, message: `Task ${taskId.slice(0, 8)} cancelled` };
+  }
+
+  private async collectArtifacts(
+    workDir: string,
+    taskId: string,
+  ): Promise<{ zipPath: string | null; resultPath: string | null }> {
+
+    // Scan files written by the agent (skip hidden dirs, node_modules, etc.)
+    const files = await this.scanWorkDir(workDir);
+    if (files.length === 0) {
+      this.log(`No artifact files found in ${workDir}`);
+      return { zipPath: null, resultPath: null };
+    }
+
+    this.log(`Found ${files.length} artifact files in ${workDir}`);
+
+    // Create zip
+    const zip = new AdmZip();
+    const outputs: Array<{ name: string; type: string; path: string; description?: string }> = [];
+
+    for (const filePath of files) {
+      const relativePath = path.relative(workDir, filePath);
+      zip.addLocalFile(filePath, path.dirname(relativePath));
+      const ext = path.extname(filePath).toLowerCase();
+      const stat = await fs.promises.stat(filePath);
+      outputs.push({
+        name: path.basename(filePath),
+        type: ext.replace('.', '') || 'file',
+        path: relativePath,
+        description: `${(stat.size / 1024).toFixed(1)} KB`,
+      });
+    }
+
+    // Find summary from the first .md or .txt file
+    let summary = `Agent completed task with ${files.length} output file(s)`;
+    for (const filePath of files) {
+      const ext = path.extname(filePath).toLowerCase();
+      if (ext === '.md' || ext === '.txt') {
+        try {
+          const content = await fs.promises.readFile(filePath, 'utf-8');
+          const firstLine = content.split('\n').find((l) => l.trim().length > 0) ?? '';
+          if (firstLine.length > 10) {
+            summary = firstLine.replace(/^#+\s*/, '').slice(0, 500);
+          }
+        } catch { /* ignore read errors */ }
+        break;
+      }
+    }
+
+    const artifactDir = path.join(workDir, '.artifacts');
+    await fs.promises.mkdir(artifactDir, { recursive: true });
+    const zipPath = path.join(artifactDir, `${taskId}.zip`);
+    zip.writeZip(zipPath);
+
+    const resultJson = {
+      taskId,
+      success: true,
+      summary,
+      outputs,
+    };
+    const resultPath = path.join(artifactDir, 'result.json');
+    await fs.promises.writeFile(resultPath, JSON.stringify(resultJson, null, 2), 'utf-8');
+
+    this.log(`Artifacts packed: ${zipPath} (${outputs.length} files)`);
+    return { zipPath, resultPath };
+  }
+
+  private async scanWorkDir(dir: string): Promise<string[]> {
+    const SKIP_DIRS = new Set(['.artifacts', '.git', 'node_modules', '.claude', '__pycache__']);
+    const results: string[] = [];
+
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') && entry.isDirectory()) continue;
+      if (SKIP_DIRS.has(entry.name)) continue;
+
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const sub = await this.scanWorkDir(fullPath);
+        results.push(...sub);
+      } else if (entry.isFile()) {
+        results.push(fullPath);
+      }
+    }
+    return results;
+  }
+
+  private async reportAgentProgress(
+    agentId: string,
+    taskId: string,
+    status: string,
+  ): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.httpClient.reportProgress(taskId, {
+        clientId: this.client.id,
+        agentId,
+        progress: 0,
+        message: status.split('\n')[0]?.slice(0, 300) ?? '',
+      });
+    } catch {
+      // progress reporting is best-effort
+    }
+  }
+
+  private async uploadTaskLogs(agentId: string, taskId: string, entries: InteractionLogEntry[]): Promise<void> {
+    if (!this.client || entries.length === 0) return;
+    try {
+      await this.httpClient.appendTaskLogs(taskId, this.client.id, agentId, entries);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`Failed to upload task logs for ${taskId.slice(0, 8)}: ${msg}`);
+    }
+  }
+
+  private recordClientLog(
+    level: 'info' | 'warn' | 'error' | 'debug',
+    event: string,
+    message: string,
+    context?: Record<string, unknown>,
+  ): void {
+    this.clientLogBuffer.push({
+      id: uuid(),
+      timestamp: new Date().toISOString(),
+      level,
+      event,
+      message,
+      context,
+    });
+    if (this.clientLogBuffer.length >= 10) {
+      this.flushClientLogs();
+    }
+  }
+
+  private flushClientLogs(): void {
+    if (!this.client || this.clientLogBuffer.length === 0) return;
+    const batch = this.clientLogBuffer.splice(0);
+    void this.httpClient.appendClientLogs(this.client.id, batch).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`Failed to upload client logs: ${msg}`);
+    });
   }
 
   private startHeartbeat(): void {
@@ -208,6 +472,7 @@ export class ClientNode {
         void this.httpClient.heartbeat(this.client.id, {
           agents: this.buildAgentInfos(),
         }).catch(() => {});
+        this.flushClientLogs();
       }
     }, this.config.heartbeat.interval);
   }
@@ -256,50 +521,14 @@ export class ClientNode {
         return { success: true };
       }
 
-      case 'worker.complete': {
-        const c = payload as {
-          taskId: string;
-          agentId: string;
-          zipPath: string;
-          resultPath: string;
-        };
-        if (!this.client) throw new Error('Not registered');
-        const task = await this.httpClient.completeTask(c.taskId, {
-          zipPath: c.zipPath,
-          resultPath: c.resultPath,
-        });
-        const worker = this.workerManager.getWorkerState(c.agentId);
-        if (worker) {
-          worker.status = 'idle';
-          worker.currentTaskId = undefined;
-        }
-        this.log(`Task ${c.taskId.slice(0, 8)} completed by ${c.agentId}`);
-        return task;
-      }
-
-      case 'worker.fail': {
-        const f = payload as {
-          taskId: string;
-          agentId: string;
-          reason: string;
-        };
-        if (!this.client) throw new Error('Not registered');
-        await this.httpClient.releaseTask(f.taskId, {
-          clientId: this.client.id,
-          reason: f.reason,
-        });
-        const worker = this.workerManager.getWorkerState(f.agentId);
-        if (worker) {
-          worker.status = 'idle';
-          worker.currentTaskId = undefined;
-        }
-        this.log(`Task ${f.taskId.slice(0, 8)} failed by ${f.agentId}: ${f.reason}`);
-        return { success: true };
-      }
-
       case 'worker.status': {
         const s = payload as { agentId: string };
         return this.workerManager.getWorkerState(s.agentId) ?? { error: 'Worker not found' };
+      }
+
+      case 'task.cancel': {
+        const c = payload as { taskId: string; reason?: string };
+        return this.cancelRunningTask(c.taskId, c.reason ?? 'User cancelled');
       }
 
       case 'config.show':

@@ -1,0 +1,48 @@
+{
+  "id": "c194486e-cf63-4ca4-9622-060e8b9f03fe",
+  "title": "E2E Smoke Test",
+  "description": "Verify full task lifecycle: create -> claim -> execute -> complete",
+  "status": "completed",
+  "tags": [
+    "code"
+  ],
+  "priority": "normal",
+  "createdAt": "2026-02-28T16:01:52.440Z",
+  "updatedAt": "2026-02-28T16:02:00.070Z",
+  "claimedBy": {
+    "clientId": "2e48e3de-7bca-4b1d-854e-f1c6d8fbed16",
+    "agentId": "worker-code"
+  },
+  "claimedAt": "2026-02-28T16:01:52.942Z",
+  "progress": 100,
+  "progressMessage": "Uploading artifacts...",
+  "artifacts": {
+    "zipFile": "artifacts\\c194486e-cf63-4ca4-9622-060e8b9f03fe\\artifact.zip",
+    "zipSizeBytes": 517,
+    "zipHash": "fe8288f62a5820d310f75b7b9a6e677be8a8a6c6b57f137df8b7852ad210afae",
+    "resultJson": {
+      "taskId": "c194486e-cf63-4ca4-9622-060e8b9f03fe",
+      "success": true,
+      "summary": "Task completed by worker-code. Generated analysis and output files.",
+      "outputs": [
+        {
+          "name": "analysis",
+          "type": "report",
+          "path": "analysis.md",
+          "description": "Task analysis report"
+        },
+        {
+          "name": "output",
+          "type": "file",
+          "path": "output.txt",
+          "description": "Generated output"
+        }
+      ],
+      "metrics": {
+        "durationSeconds": 8
+      }
+    },
+    "uploadedAt": "2026-02-28T16:02:00.069Z"
+  },
+  "completedAt": "2026-02-28T16:02:00.070Z"
+}

@@ -16,18 +16,20 @@
   },
   "dependencies": {
     "@agentdispatch/shared": "workspace:*",
-    "fastify": "^5.0.0",
     "@fastify/multipart": "^9.0.0",
-    "zod": "^3.25.0",
-    "uuid": "^11.0.0"
+    "adm-zip": "^0.5.16",
+    "fastify": "^5.0.0",
+    "uuid": "^11.0.0",
+    "zod": "^3.25.0"
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
     "@types/node": "catalog:",
     "@types/uuid": "^10.0.0",
-    "typescript": "catalog:",
-    "tsup": "catalog:",
-    "vitest": "catalog:",
     "eslint": "catalog:",
-    "tsx": "catalog:"
+    "tsup": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

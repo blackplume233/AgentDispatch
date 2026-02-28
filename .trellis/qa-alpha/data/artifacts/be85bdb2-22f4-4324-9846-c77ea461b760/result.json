@@ -1,0 +1,22 @@
+{
+  "taskId": "be85bdb2-22f4-4324-9846-c77ea461b760",
+  "success": true,
+  "summary": "Task completed by worker-code. Generated analysis and output files.",
+  "outputs": [
+    {
+      "name": "analysis",
+      "type": "report",
+      "path": "analysis.md",
+      "description": "Task analysis report"
+    },
+    {
+      "name": "output",
+      "type": "file",
+      "path": "output.txt",
+      "description": "Generated output"
+    }
+  ],
+  "metrics": {
+    "durationSeconds": 8
+  }
+}

@@ -59,3 +59,13 @@ export interface RegisterClientDTO {
 export interface HeartbeatDTO {
   agents?: AgentInfo[];
 }
+
+export interface AppendTaskLogsDTO {
+  clientId: string;
+  agentId: string;
+  entries: import('./task.js').InteractionLogEntry[];
+}
+
+export interface AppendClientLogsDTO {
+  entries: import('./log.js').ClientLogEntry[];
+}

@@ -1,0 +1,26 @@
+{
+  "id": "4d999d2a-5bfa-4c09-b87f-c1a8f633a7bd",
+  "name": "qa-real-node",
+  "host": "Plume-PC",
+  "status": "online",
+  "tags": [
+    "code",
+    "docs",
+    "analysis"
+  ],
+  "dispatchMode": "tag-auto",
+  "agents": [
+    {
+      "id": "worker-claude",
+      "type": "worker",
+      "status": "idle",
+      "capabilities": [
+        "code",
+        "docs",
+        "analysis"
+      ]
+    }
+  ],
+  "lastHeartbeat": "2026-02-28T17:25:07.355Z",
+  "registeredAt": "2026-02-28T16:53:20.696Z"
+}

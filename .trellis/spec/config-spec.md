@@ -18,6 +18,7 @@
 
 | 日期 | 变更 | 类型 | 影响范围 |
 |------|------|------|----------|
+| 2026-02-28 | AgentConfig.workDir 语义更新：运行时为每个任务创建隔离子目录 `{workDir}/tasks/{taskId-prefix}/`，ACP session cwd 指向该子目录；进度汇报改为纯状态描述（不再使用百分比）| [CHANGED] | ClientNode |
 | 2026-02-28 | ServerConfig 新增 `artifacts` 配置段；Server 数据目录新增 `artifacts/{task-id}/` 存储结构 | [CHANGED] | Server |
 | 2026-02-28 | ClientConfig 新增 `dispatchMode` 字段；Manager Agent 从必须改为按模式可选；DispatchRule 新增 `priority`；autoDispatch 新增 `fallbackAction` | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-02-28 | AgentConfig 明确 ACP SDK 集成字段；新增 `acpCapabilities` 配置段；`command` 字段说明更新为 ACP Agent 启动命令 | [CHANGED] | ClientNode |
@@ -197,7 +198,7 @@ interface AgentConfig {
   command: string;
   args?: string[];                 // 启动参数（可选，command 也可包含参数）
 
-  workDir: string;                 // 工作目录（ACP newSession 的 cwd）
+  workDir: string;                 // 基础工作目录；运行时每个任务在 {workDir}/tasks/{taskId-prefix}/ 下创建隔离子目录作为 ACP session cwd
   capabilities?: string[];         // 职责倾向（Worker 类型）
   autoClaimTags?: string[];        // 根据 tag 自动接取
   allowMultiProcess?: boolean;     // 是否允许创建多进程，默认 false

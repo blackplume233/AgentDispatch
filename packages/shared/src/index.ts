@@ -8,6 +8,9 @@ export type {
   TaskArtifacts,
   TaskResultJson,
   TaskOutput,
+  InteractionStepType,
+  InteractionLogEntry,
+  ArtifactFileEntry,
 } from './types/task.js';
 export { VALID_TASK_TRANSITIONS, isValidTransition } from './types/task.js';
 
@@ -25,11 +28,13 @@ export type {
   ProgressDTO,
   RegisterClientDTO,
   HeartbeatDTO,
+  AppendTaskLogsDTO,
+  AppendClientLogsDTO,
 } from './types/dto.js';
 
 export type { IPCMessage, IPCError } from './types/ipc.js';
 
-export type { AuditLogEntry, LogLevel, LogSource, LogCategory } from './types/log.js';
+export type { AuditLogEntry, LogLevel, LogSource, LogCategory, ClientLogEntry } from './types/log.js';
 
 export type {
   ServerConfig,

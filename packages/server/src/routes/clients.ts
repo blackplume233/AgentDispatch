@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { ClientService } from '../services/client-service.js';
-import type { RegisterClientDTO, HeartbeatDTO, AgentInfo } from '@agentdispatch/shared';
+import type { LogStore } from '../store/log-store.js';
+import type { RegisterClientDTO, HeartbeatDTO, AgentInfo, AppendClientLogsDTO } from '@agentdispatch/shared';
 
-export function registerClientRoutes(app: FastifyInstance, clientService: ClientService): void {
+export function registerClientRoutes(app: FastifyInstance, clientService: ClientService, logStore: LogStore): void {
   app.post<{ Body: RegisterClientDTO }>('/api/v1/clients/register', async (request, reply) => {
     const client = await clientService.register(request.body);
     return reply.code(201).send(client);
@@ -32,4 +33,23 @@ export function registerClientRoutes(app: FastifyInstance, clientService: Client
   app.patch<{ Params: { id: string }; Body: AgentInfo[] }>('/api/v1/clients/:id/agents', async (request) => {
     return clientService.updateAgents(request.params.id, request.body);
   });
+
+  // --- Client operational logs ---
+
+  app.post<{ Params: { id: string }; Body: AppendClientLogsDTO }>(
+    '/api/v1/clients/:id/logs',
+    async (request, reply) => {
+      await clientService.getClient(request.params.id);
+      await logStore.appendClientLogs(request.params.id, request.body.entries);
+      return reply.code(204).send();
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { after?: string } }>(
+    '/api/v1/clients/:id/logs',
+    async (request) => {
+      await clientService.getClient(request.params.id);
+      return logStore.getClientLogs(request.params.id, request.query.after);
+    },
+  );
 }

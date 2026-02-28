@@ -1,8 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import type { TaskArtifacts, TaskResultJson } from '@agentdispatch/shared';
-import { ValidationError, ErrorCode } from '@agentdispatch/shared';
+import AdmZip from 'adm-zip';
+import type { TaskArtifacts, TaskResultJson, ArtifactFileEntry } from '@agentdispatch/shared';
+import { ValidationError, ErrorCode, NotFoundError } from '@agentdispatch/shared';
+
+const TEXT_EXTENSIONS = new Set([
+  '.txt', '.md', '.json', '.js', '.ts', '.tsx', '.jsx', '.css', '.html',
+  '.xml', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.sh', '.bash',
+  '.py', '.rb', '.rs', '.go', '.java', '.c', '.cpp', '.h', '.hpp',
+  '.csv', '.sql', '.log', '.env', '.gitignore', '.dockerfile',
+  '.svg', '.graphql', '.prisma', '.vue', '.svelte',
+]);
 
 export interface ArtifactValidationResult {
   artifacts: TaskArtifacts;
@@ -95,5 +104,46 @@ export class ArtifactService {
     };
 
     return { artifacts, zipPath, resultPath };
+  }
+
+  getZipPath(taskId: string): string {
+    return path.join(this.artifactsDir, taskId, 'artifact.zip');
+  }
+
+  async listFiles(taskId: string): Promise<ArtifactFileEntry[]> {
+    const zipPath = this.getZipPath(taskId);
+    try {
+      await fs.promises.access(zipPath);
+    } catch {
+      throw new NotFoundError('Task', taskId);
+    }
+
+    const zip = new AdmZip(zipPath);
+    return zip.getEntries()
+      .filter((entry) => !entry.isDirectory)
+      .map((entry) => ({
+        path: entry.entryName,
+        size: entry.header.size,
+        isText: TEXT_EXTENSIONS.has(path.extname(entry.entryName).toLowerCase()),
+      }));
+  }
+
+  async getFile(taskId: string, filePath: string): Promise<{ buffer: Buffer; isText: boolean }> {
+    const zipPath = this.getZipPath(taskId);
+    try {
+      await fs.promises.access(zipPath);
+    } catch {
+      throw new NotFoundError('Task', taskId);
+    }
+
+    const zip = new AdmZip(zipPath);
+    const entry = zip.getEntry(filePath);
+    if (!entry) {
+      throw new NotFoundError('File', filePath);
+    }
+
+    const buffer = entry.getData();
+    const isText = TEXT_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+    return { buffer, isText };
   }
 }

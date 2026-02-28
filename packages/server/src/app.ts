@@ -5,6 +5,7 @@ import { AppError } from '@agentdispatch/shared';
 import { OperationQueue } from './queue/operation-queue.js';
 import { TaskStore } from './store/task-store.js';
 import { ClientStore } from './store/client-store.js';
+import { LogStore } from './store/log-store.js';
 import { TaskService } from './services/task-service.js';
 import { ClientService } from './services/client-service.js';
 import { ArtifactService } from './services/artifact-service.js';
@@ -16,6 +17,7 @@ export interface AppContext {
   taskService: TaskService;
   clientService: ClientService;
   artifactService: ArtifactService;
+  logStore: LogStore;
   logger: Logger;
   queue: OperationQueue;
 }
@@ -42,6 +44,8 @@ export async function createApp(
   const queue = new OperationQueue(config.queue.maxSize);
   const artifactService = new ArtifactService(config.artifacts.dir, config.artifacts.maxZipSizeBytes);
   await artifactService.init();
+  const logStore = new LogStore(config.logging.dir);
+  await logStore.init();
   const taskService = new TaskService(taskStore, queue, logger);
   const clientService = new ClientService(
     clientStore,
@@ -107,13 +111,13 @@ export async function createApp(
   await app.register(multipart);
 
   // Register routes
-  registerTaskRoutes(app, taskService, artifactService);
-  registerClientRoutes(app, clientService);
+  registerTaskRoutes(app, taskService, artifactService, logStore);
+  registerClientRoutes(app, clientService, logStore);
 
   // Health check
   app.get('/health', async () => ({ status: 'ok', version: '0.0.1' }));
 
-  const context: AppContext = { taskService, clientService, artifactService, logger, queue };
+  const context: AppContext = { taskService, clientService, artifactService, logStore, logger, queue };
 
   return { app, context };
 }

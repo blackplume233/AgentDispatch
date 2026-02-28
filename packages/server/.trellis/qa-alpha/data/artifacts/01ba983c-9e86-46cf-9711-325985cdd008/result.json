@@ -1,0 +1,25 @@
+{
+  "taskId": "01ba983c-9e86-46cf-9711-325985cdd008",
+  "success": true,
+  "summary": "Bilibili 视频分析报告",
+  "outputs": [
+    {
+      "name": "analysis-report.md",
+      "type": "md",
+      "path": "analysis-report.md",
+      "description": "3.7 KB"
+    },
+    {
+      "name": "danmaku-analysis.md",
+      "type": "md",
+      "path": "danmaku-analysis.md",
+      "description": "5.4 KB"
+    },
+    {
+      "name": "video-metadata.json",
+      "type": "json",
+      "path": "video-metadata.json",
+      "description": "2.8 KB"
+    }
+  ]
+}

@@ -9,6 +9,8 @@ import type {
   ClaimTaskDTO,
   ReleaseTaskDTO,
   AgentInfo,
+  InteractionLogEntry,
+  ClientLogEntry,
 } from '@agentdispatch/shared';
 
 export interface CompleteTaskOptions {
@@ -70,8 +72,16 @@ export class ServerHttpClient {
     await this.request<unknown>('POST', `/tasks/${taskId}/progress`, dto);
   }
 
+  async cancelTask(taskId: string, reason?: string): Promise<Task> {
+    return this.request<Task>('POST', `/tasks/${taskId}/cancel`, { reason });
+  }
+
   async registerClient(dto: RegisterClientDTO): Promise<Client> {
     return this.request<Client>('POST', '/clients/register', dto);
+  }
+
+  async listClients(): Promise<Client[]> {
+    return this.request<Client[]>('GET', '/clients');
   }
 
   async unregisterClient(clientId: string): Promise<void> {
@@ -84,6 +94,25 @@ export class ServerHttpClient {
 
   async updateAgents(clientId: string, agents: AgentInfo[]): Promise<Client> {
     return this.request<Client>('PATCH', `/clients/${clientId}/agents`, agents);
+  }
+
+  async appendTaskLogs(
+    taskId: string,
+    clientId: string,
+    agentId: string,
+    entries: InteractionLogEntry[],
+  ): Promise<void> {
+    if (entries.length === 0) return;
+    await this.request<undefined>('POST', `/tasks/${taskId}/logs`, {
+      clientId,
+      agentId,
+      entries,
+    });
+  }
+
+  async appendClientLogs(clientId: string, entries: ClientLogEntry[]): Promise<void> {
+    if (entries.length === 0) return;
+    await this.request<undefined>('POST', `/clients/${clientId}/logs`, { entries });
   }
 
   async completeTask(taskId: string, opts: CompleteTaskOptions): Promise<Task> {

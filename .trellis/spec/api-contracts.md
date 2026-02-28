@@ -21,6 +21,7 @@
 
 | 日期 | 变更 | 类型 | 影响范围 |
 |------|------|------|----------|
+| 2026-02-28 | ProgressDTO.progress 语义变更：不再表示百分比，固定为 0（仅触发状态机转换），实际状态通过 message 描述；IPC 新增 `task.cancel` 命令；DispatchAcpClient 日志聚合：text/thinking/prompt token 流聚合为完整消息后再记录；新增 ProgressCallback 回调（纯状态描述）；任务 workDir 隔离 | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-02-28 | Worker 通信方式明确为 CLI 调用；CLI 新增 `dispatch worker` 命令组（progress/complete/fail/status/log/heartbeat）；Manager 职责收窄为 Node 分发顾问 | [CHANGED] | ClientNode, ClientCLI, Worker |
 | 2026-02-28 | 任务完成必须提交产物（zip + result.json）；Task 新增 `artifacts` 字段；complete 接口改为 multipart；新增 4 个 ARTIFACT 错误码 | [CHANGED] | Server, ClientNode, Worker, Dashboard |
 | 2026-02-28 | Manager Agent 从必须改为可选；RegisterClientDTO/Client 新增 `dispatchMode` 字段 | [CHANGED] | Server, ClientNode, Dashboard |
@@ -78,8 +79,8 @@ interface Task {
   status: TaskStatus;
   tags: string[];
   priority: 'low' | 'normal' | 'high' | 'urgent';
-  progress?: number;           // 0-100
-  progressMessage?: string;
+  progress?: number;           // [CHANGED 2026-02-28] 保留字段，不再用于展示百分比
+  progressMessage?: string;   // [CHANGED 2026-02-28] Agent 当前活动状态描述
   claimedBy?: {
     clientId: string;
     agentId: string;
@@ -209,11 +210,13 @@ interface AgentInfo {
 interface ProgressDTO {
   clientId: string;
   agentId: string;
-  progress: number;            // 0-100
-  message?: string;
+  progress: number;            // [CHANGED 2026-02-28] 固定传 0；不再表示百分比，仅用于触发 claimed → in_progress 状态转换
+  message?: string;            // [CHANGED 2026-02-28] Agent 当前状态描述（如 "Calling: curl"、"分析视频元数据"），替代百分比进度
   logs?: string[];             // 最新日志行
 }
 ```
+
+> **⚠️ [CHANGED 2026-02-28] 进度语义变更**：`progress` 字段不再承载有意义的百分比数值。Agent 执行过程的实际状态通过 `message` 字段以自然语言描述。Dashboard 展示时显示状态文本而非进度条。
 
 ---
 
@@ -297,6 +300,20 @@ interface IPCError {
   details?: unknown;
 }
 ```
+
+### IPC 命令列表
+
+| command | 说明 | payload | response |
+|---------|------|---------|----------|
+| `node.status` | 查询节点状态 | - | `{ registered, clientId, serverUrl, ... }` |
+| `node.register` | 注册到 Server | - | `Client` |
+| `node.unregister` | 从 Server 注销 | - | `{ success: true }` |
+| `node.stop` | 停止节点 | - | `{ success: true }` |
+| `task.list` | 查看 pending 任务 | - | `Task[]` |
+| `task.cancel` | 取消运行中任务 [NEW 2026-02-28] | `{ taskId: string; reason?: string }` | `{ success: boolean; message: string }` |
+| `worker.progress` | 上报任务进度 | `{ taskId, agentId, progress, message? }` | `{ success: true }` |
+| `worker.status` | 查看 Worker 状态 | `{ agentId: string }` | `WorkerState` |
+| `config.show` | 显示当前配置 | - | `ClientConfig` |
 
 ### 序列化
 
@@ -482,7 +499,7 @@ ClientNode 需实现 ACP `Client` 接口，处理 Agent 发起的请求和通知
 | Agent → Client 方法 | 类型 | ClientNode 处理 |
 |---------------------|------|----------------|
 | `session/request_permission` | Request | 按 `AgentConfig.permissionPolicy` 自动响应；Worker 默认 `auto-allow`，Manager 默认 `auto-deny` |
-| `session/update` | Notification | 分发到日志记录 (agent_message_chunk / tool_call / tool_call_update / plan) |
+| `session/update` | Notification | 分发到日志记录；[CHANGED 2026-02-28] text/thinking/prompt token 流在内存中聚合，遇到结构化事件（tool_call/plan）或 flush 时才写入完整消息段 |
 
 **文件系统方法（按 ClientCapabilities 声明）**：
 
@@ -539,7 +556,8 @@ Worker 启动时，ClientNode Core 执行以下流程：
    └─ stdio: ['pipe', 'pipe', 'inherit']
 2. 建立 ACP 连接: ndJsonStream + ClientSideConnection
 3. initialize → 协商协议版本 + 声明 ClientCapabilities (fs + terminal)
-4. newSession → 创建会话 (cwd = agentConfig.workDir)，获取 sessionId
+4. [CHANGED 2026-02-28] 创建任务隔离目录: {agentConfig.workDir}/tasks/{taskId-prefix}/
+   newSession → 创建会话 (cwd = 隔离目录)，获取 sessionId
 5. 拼装 prompt:
    a. 读取模板文件: AgentConfig.promptTemplate 或默认 worker-prompt.md
    b. 替换 {{variable}} 为运行时值（任务信息、Agent 信息、CLI 命令等）
