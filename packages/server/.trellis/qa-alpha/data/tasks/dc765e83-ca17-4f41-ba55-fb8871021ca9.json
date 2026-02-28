@@ -1,0 +1,17 @@
+{
+  "id": "dc765e83-ca17-4f41-ba55-fb8871021ca9",
+  "title": "这是一个测试任务",
+  "description": "进行五十次以上的webfetch调用，每次输出调用了什么及内容总结",
+  "status": "claimed",
+  "tags": [
+    "code"
+  ],
+  "priority": "normal",
+  "createdAt": "2026-02-28T17:29:35.093Z",
+  "updatedAt": "2026-02-28T17:29:38.632Z",
+  "claimedBy": {
+    "clientId": "4d999d2a-5bfa-4c09-b87f-c1a8f633a7bd",
+    "agentId": "worker-claude"
+  },
+  "claimedAt": "2026-02-28T17:29:38.632Z"
+}

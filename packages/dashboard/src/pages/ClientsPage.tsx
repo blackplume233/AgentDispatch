@@ -1,3 +1,4 @@
+import type React from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -9,7 +10,7 @@ import { StatusBadge } from "@/components/common/status-badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { useClients } from "@/hooks/use-clients";
 
-export function ClientsPage() {
+export function ClientsPage(): React.ReactElement {
   const { t } = useTranslation();
   const { data: clients, isLoading, error } = useClients();
   const [search, setSearch] = useState("");

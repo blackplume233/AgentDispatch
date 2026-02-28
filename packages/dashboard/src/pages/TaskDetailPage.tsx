@@ -1,3 +1,4 @@
+import type React from "react";
 import { useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, Link } from "react-router-dom";
@@ -23,7 +24,7 @@ import { useArtifactFiles } from "@/hooks/use-artifact-files";
 import { api } from "@/api/client";
 import type { InteractionLogEntry, InteractionStepType, ArtifactFileEntry } from "@/types";
 
-export function TaskDetailPage() {
+export function TaskDetailPage(): React.ReactElement {
   const { t } = useTranslation();
   const { id = "" } = useParams<{ id: string }>();
   const { data: task, isLoading, error, refetch } = useTask(id);
@@ -34,7 +35,7 @@ export function TaskDetailPage() {
   const { data: artifactFiles } = useArtifactFiles(id, hasArtifacts);
 
   const [cancelling, setCancelling] = useState(false);
-  const handleCancel = useCallback(async () => {
+  const handleCancel = useCallback(async (): Promise<void> => {
     if (!confirm(t("tasks.detail.cancelConfirm"))) return;
     setCancelling(true);
     try {
@@ -303,12 +304,12 @@ export function TaskDetailPage() {
   );
 }
 
-function ArtifactFileRow({ taskId, file }: { taskId: string; file: ArtifactFileEntry }) {
+function ArtifactFileRow({ taskId, file }: { taskId: string; file: ArtifactFileEntry }): React.ReactElement {
   const { t } = useTranslation();
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handlePreview = async () => {
+  const handlePreview = async (): Promise<void> => {
     if (preview !== null) {
       setPreview(null);
       return;
@@ -396,7 +397,7 @@ const STEP_STYLE: Record<InteractionStepType, { border: string; bg: string }> = 
   system:           { border: "border-l-gray-400",    bg: "bg-gray-50 dark:bg-gray-900/30" },
 };
 
-function InteractionEntry({ entry }: { entry: InteractionLogEntry }) {
+function InteractionEntry({ entry }: { entry: InteractionLogEntry }): React.ReactElement {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(() => {
     if (entry.type === "thinking") return false;
@@ -487,7 +488,7 @@ function InfoRow({
   label: string;
   children: React.ReactNode;
   fullWidth?: boolean;
-}) {
+}): React.ReactElement {
   return (
     <div className={fullWidth ? "col-span-full" : ""}>
       <p className="text-xs font-medium text-muted-foreground mb-1">{label}</p>

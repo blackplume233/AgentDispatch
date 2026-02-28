@@ -1,3 +1,4 @@
+import type React from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -13,7 +14,7 @@ interface CreateTaskDialogProps {
   onClose: () => void;
 }
 
-export function CreateTaskDialog({ onClose }: CreateTaskDialogProps) {
+export function CreateTaskDialog({ onClose }: CreateTaskDialogProps): React.ReactElement {
   const { t } = useTranslation();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -21,7 +22,7 @@ export function CreateTaskDialog({ onClose }: CreateTaskDialogProps) {
   const [priority, setPriority] = useState<TaskPriority>("normal");
   const mutation = useCreateTask();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
     mutation.mutate(
       {

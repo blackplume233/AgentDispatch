@@ -1,9 +1,10 @@
+import type React from "react";
 import { useTranslation } from "react-i18next";
 import { Activity, Wifi, WifiOff, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/use-theme";
 
-export function TopBar() {
+export function TopBar(): React.ReactElement {
   const { t } = useTranslation();
   const { theme, toggle } = useTheme();
 
@@ -23,7 +24,7 @@ export function TopBar() {
   );
 }
 
-function ServerStatus() {
+function ServerStatus(): React.ReactElement {
   const { t } = useTranslation();
   const online = true;
 

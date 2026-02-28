@@ -59,7 +59,7 @@ interface DropdownMenuProps {
   children: React.ReactNode;
 }
 
-function DropdownMenu({ trigger, children }: DropdownMenuProps) {
+function DropdownMenu({ trigger, children }: DropdownMenuProps): React.ReactElement {
   return (
     <DropdownMenuRoot>
       <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
@@ -77,7 +77,7 @@ function DropdownMenuItem({
   className,
   onClick,
   ...props
-}: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item>) {
+}: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item>): React.ReactElement {
   return (
     <DropdownMenuItemBase
       className={cn("cursor-pointer", className)}

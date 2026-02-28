@@ -1,9 +1,10 @@
+import type React from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export function NotFoundPage() {
+export function NotFoundPage(): React.ReactElement {
   const { t } = useTranslation();
 
   return (

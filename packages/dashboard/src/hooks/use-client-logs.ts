@@ -4,7 +4,7 @@ import type { ClientLogEntry } from "@/types";
 
 const POLL_INTERVAL = 5000;
 
-export function useClientLogs(clientId: string | undefined, isActive: boolean) {
+export function useClientLogs(clientId: string | undefined, isActive: boolean): { logs: ClientLogEntry[]; loading: boolean } {
   const [logs, setLogs] = useState<ClientLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const lastIdRef = useRef<string | undefined>(undefined);
@@ -15,7 +15,7 @@ export function useClientLogs(clientId: string | undefined, isActive: boolean) {
     try {
       const entries = await api.clientLogs.list(clientId, lastIdRef.current);
       if (entries.length > 0) {
-        lastIdRef.current = entries[entries.length - 1]!.id;
+        lastIdRef.current = entries[entries.length - 1]?.id;
         setLogs((prev) => [...prev, ...entries]);
       }
     } catch {

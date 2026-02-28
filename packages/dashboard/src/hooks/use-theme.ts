@@ -16,7 +16,7 @@ function getInitialTheme(): Theme {
   return "system";
 }
 
-export function useTheme() {
+export function useTheme(): { theme: Theme; setTheme: (t: Theme) => void; toggle: () => void } {
   const [theme, setTheme] = useState<Theme>(getInitialTheme);
 
   useEffect(() => {
@@ -33,7 +33,7 @@ export function useTheme() {
   useEffect(() => {
     if (theme !== "system") return;
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => {
+    const handler = (): void => {
       const root = document.documentElement;
       if (mq.matches) {
         root.classList.add("dark");

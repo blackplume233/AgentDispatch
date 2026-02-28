@@ -4,7 +4,7 @@ import type { InteractionLogEntry } from "@/types";
 
 const POLL_INTERVAL = 2000;
 
-export function useTaskLogs(taskId: string | undefined, isActive: boolean) {
+export function useTaskLogs(taskId: string | undefined, isActive: boolean): { logs: InteractionLogEntry[]; loading: boolean } {
   const [logs, setLogs] = useState<InteractionLogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const lastIdRef = useRef<string | undefined>(undefined);
@@ -15,7 +15,7 @@ export function useTaskLogs(taskId: string | undefined, isActive: boolean) {
     try {
       const entries = await api.taskLogs.list(taskId, lastIdRef.current);
       if (entries.length > 0) {
-        lastIdRef.current = entries[entries.length - 1]!.id;
+        lastIdRef.current = entries[entries.length - 1]?.id;
         setLogs((prev) => [...prev, ...entries]);
       }
     } catch {

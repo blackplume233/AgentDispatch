@@ -1,3 +1,4 @@
+import type React from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -8,7 +9,7 @@ import { StatusBadge, PriorityBadge } from "@/components/common/status-badge";
 import { useTasks } from "@/hooks/use-tasks";
 import { useClients } from "@/hooks/use-clients";
 
-export function CommandCenter() {
+export function CommandCenter(): React.ReactElement {
   const { t } = useTranslation();
   const { data: tasks, isLoading: tasksLoading } = useTasks();
   const { data: clients, isLoading: clientsLoading } = useClients();
@@ -168,7 +169,7 @@ function StatCard({
   value: number;
   icon: React.ReactNode;
   accent?: string;
-}) {
+}): React.ReactElement {
   return (
     <Card>
       <CardContent className="flex items-center gap-4 p-4">
@@ -184,7 +185,7 @@ function StatCard({
   );
 }
 
-function EmptyBlock({ icon, text }: { icon: React.ReactNode; text: string }) {
+function EmptyBlock({ icon, text }: { icon: React.ReactNode; text: string }): React.ReactElement {
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed py-12 text-center">
       {icon}

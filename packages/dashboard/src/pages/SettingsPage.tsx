@@ -1,3 +1,4 @@
+import type React from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Settings, Server, Monitor, Sun, Moon, Laptop } from "lucide-react";
@@ -8,7 +9,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useTasks } from "@/hooks/use-tasks";
 import { useClients } from "@/hooks/use-clients";
 
-export function SettingsPage() {
+export function SettingsPage(): React.ReactElement {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
   const { data: tasks } = useTasks();

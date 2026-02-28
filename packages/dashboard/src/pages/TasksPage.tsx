@@ -1,3 +1,4 @@
+import type React from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
@@ -25,7 +26,7 @@ const KANBAN_COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: "completed", label: "Completed" },
 ];
 
-export function TasksPage() {
+export function TasksPage(): React.ReactElement {
   const { t } = useTranslation();
   const { data: tasks, isLoading, error } = useTasks();
   const [showCreate, setShowCreate] = useState(false);
@@ -193,7 +194,7 @@ export function TasksPage() {
   );
 }
 
-function KanbanColumn({ label, tasks }: { label: string; tasks: Task[] }) {
+function KanbanColumn({ label, tasks }: { label: string; tasks: Task[] }): React.ReactElement {
   const { t } = useTranslation();
   return (
     <div className="rounded-xl bg-muted/50 p-3">
@@ -231,7 +232,7 @@ function KanbanColumn({ label, tasks }: { label: string; tasks: Task[] }) {
   );
 }
 
-function TaskTable({ tasks }: { tasks: Task[] }) {
+function TaskTable({ tasks }: { tasks: Task[] }): React.ReactElement {
   return (
     <div className="rounded-lg border">
       <Table>

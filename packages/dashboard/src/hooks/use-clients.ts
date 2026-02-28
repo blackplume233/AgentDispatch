@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
+import type { Client } from "@/types";
 
-export function useClients() {
+export function useClients(): ReturnType<typeof useQuery<Client[]>> {
   return useQuery({
     queryKey: ["clients"],
     queryFn: () => api.clients.list(),
@@ -9,7 +10,7 @@ export function useClients() {
   });
 }
 
-export function useClient(id: string) {
+export function useClient(id: string): ReturnType<typeof useQuery<Client>> {
   return useQuery({
     queryKey: ["clients", id],
     queryFn: () => api.clients.get(id),

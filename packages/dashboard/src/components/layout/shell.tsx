@@ -1,7 +1,8 @@
+import type React from "react";
 import { AppSidebar } from "./app-sidebar";
 import { TopBar } from "./top-bar";
 
-export function Shell({ children }: { children: React.ReactNode }) {
+export function Shell({ children }: { children: React.ReactNode }): React.ReactElement {
   return (
     <div className="flex h-screen bg-background text-foreground">
       <AppSidebar />

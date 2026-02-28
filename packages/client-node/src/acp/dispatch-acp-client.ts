@@ -321,13 +321,14 @@ export class DispatchAcpClient implements AcpClient {
     return { output: '', truncated: false };
   }
 
-  async releaseTerminal(params: ReleaseTerminalRequest): Promise<ReleaseTerminalResponse | void> {
+  async releaseTerminal(params: ReleaseTerminalRequest): Promise<ReleaseTerminalResponse | undefined> {
     const proc = this.terminals.get(params.terminalId);
     if (proc) {
       try { proc.kill(); } catch { /* ignore */ }
       this.terminals.delete(params.terminalId);
     }
     this.record('terminal', `Terminal released: ${params.terminalId}`, { terminalId: params.terminalId });
+    return undefined;
   }
 
   async waitForTerminalExit(params: WaitForTerminalExitRequest): Promise<WaitForTerminalExitResponse> {
@@ -342,12 +343,13 @@ export class DispatchAcpClient implements AcpClient {
     });
   }
 
-  async killTerminal(params: KillTerminalCommandRequest): Promise<KillTerminalCommandResponse | void> {
+  async killTerminal(params: KillTerminalCommandRequest): Promise<KillTerminalCommandResponse | undefined> {
     const proc = this.terminals.get(params.terminalId);
     if (proc) {
       try { proc.kill(); } catch { /* ignore */ }
     }
     this.record('terminal', `Terminal killed: ${params.terminalId}`, { terminalId: params.terminalId });
+    return undefined;
   }
 
   async extMethod(_method: string, params: Record<string, unknown>): Promise<Record<string, unknown>> {

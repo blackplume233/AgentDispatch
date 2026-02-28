@@ -1,3 +1,4 @@
+import type React from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Radio, Search } from "lucide-react";
@@ -17,7 +18,7 @@ interface EventEntry {
   category: string;
 }
 
-export function EventsPage() {
+export function EventsPage(): React.ReactElement {
   const { t } = useTranslation();
   const { data: tasks } = useTasks();
   const { data: clients } = useClients();

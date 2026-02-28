@@ -1,3 +1,4 @@
+import type React from "react";
 import { cn } from "@/lib/utils";
 import type { TaskStatus, TaskPriority, ClientStatus } from "@/types";
 
@@ -26,7 +27,7 @@ interface StatusBadgeProps {
   className?: string;
 }
 
-export function StatusBadge({ status, className }: StatusBadgeProps) {
+export function StatusBadge({ status, className }: StatusBadgeProps): React.ReactElement {
   return (
     <span
       className={cn(
@@ -45,7 +46,7 @@ interface PriorityBadgeProps {
   className?: string;
 }
 
-export function PriorityBadge({ priority, className }: PriorityBadgeProps) {
+export function PriorityBadge({ priority, className }: PriorityBadgeProps): React.ReactElement {
   return (
     <span
       className={cn(

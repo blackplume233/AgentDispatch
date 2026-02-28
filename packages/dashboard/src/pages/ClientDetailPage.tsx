@@ -1,3 +1,4 @@
+import type React from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Monitor, Clock, ScrollText } from "lucide-react";
@@ -11,7 +12,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { useClient } from "@/hooks/use-clients";
 import { useClientLogs } from "@/hooks/use-client-logs";
 
-export function ClientDetailPage() {
+export function ClientDetailPage(): React.ReactElement {
   const { t } = useTranslation();
   const { id = "" } = useParams<{ id: string }>();
   const { data: client, isLoading, error } = useClient(id);
@@ -220,7 +221,7 @@ export function ClientDetailPage() {
   );
 }
 
-function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
+function InfoRow({ label, children }: { label: string; children: React.ReactNode }): React.ReactElement {
   return (
     <div>
       <p className="text-xs font-medium text-muted-foreground mb-1">{label}</p>

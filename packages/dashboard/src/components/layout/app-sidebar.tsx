@@ -1,3 +1,4 @@
+import type React from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink } from "react-router-dom";
 import {
@@ -23,7 +24,7 @@ const bottomItems = [
   { to: "/settings", icon: Settings, labelKey: "nav.settings" },
 ];
 
-export function AppSidebar() {
+export function AppSidebar(): React.ReactElement {
   const { t } = useTranslation();
 
   return (
@@ -72,7 +73,7 @@ function SidebarLink({
   to: string;
   icon: React.ComponentType<{ className?: string }>;
   labelKey: string;
-}) {
+}): React.ReactElement {
   const { t } = useTranslation();
 
   return (
@@ -94,11 +95,11 @@ function SidebarLink({
   );
 }
 
-function LanguageSwitcher() {
+function LanguageSwitcher(): React.ReactElement {
   const { i18n } = useTranslation();
   const currentLang = (i18n.language ?? "en") as string;
 
-  const handleChange = (lang: SupportedLang) => {
+  const handleChange = (lang: SupportedLang): void => {
     void i18n.changeLanguage(lang);
   };
 
