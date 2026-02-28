@@ -178,7 +178,13 @@ Based on what you'll develop, read the corresponding guidelines under `.trellis/
 
 ### Code Quality Checklist
 
-**Doc sync (config / interface changes)**:
+**⚠️ Interface / Contract changes (CRITICAL — 接口变更必须逐项确认)**:
+- [!] Did this change touch any API endpoint, DTO, IPC message, or error code? → **STOP: update `spec/api-contracts.md` FIRST, tag `[BREAKING]`/`[CHANGED]`**
+- [!] Did this change touch any config field, env var, or schema? → **STOP: update `spec/config-spec.md` FIRST, tag `[BREAKING]`/`[CHANGED]`**
+- [!] All affected consumer modules identified and their tests updated?
+- [!] Commit message uses `feat(api)!:` for breaking changes?
+
+**Doc sync (general)**:
 - [OK] If configuration fields or schemas changed → update `spec/config-spec.md`
 - [OK] If APIs, CLI commands, or error codes changed → update `spec/api-contracts.md`
 
