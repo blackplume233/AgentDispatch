@@ -4,6 +4,10 @@ import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError } fr
 import type { StopReason } from '@agentclientprotocol/sdk';
 import { AgentProcess } from './agent-process.js';
 import { DispatchAcpClient } from './dispatch-acp-client.js';
+import { TaskWorkflowRunner } from '../workflow/task-workflow-runner.js';
+import { InitialTaskPass } from '../workflow/passes/initial-task-pass.js';
+import { ArtifactEnforcementPass } from '../workflow/passes/artifact-enforcement-pass.js';
+import type { WorkflowContext } from '../workflow/task-workflow.js';
 
 export interface AcpControllerEvents {
   onAgentStarted: (agentId: string, pid: number | undefined) => void;
@@ -36,6 +40,7 @@ export class AcpController {
     outputDir?: string,
     inputDir?: string,
     workerToken?: string,
+    scanWorkDir?: (dir: string) => Promise<string[]>,
   ): Promise<void> {
     const extraEnv: Record<string, string> = {};
     if (workerToken) {
@@ -82,7 +87,7 @@ export class AcpController {
 
     this.events.onProgress(agentConfig.id, task.id, 'Initializing agent...');
 
-    void this.runAcpSession(agentConfig, task, connection, acpClient, outputDir, inputDir).catch((err) => {
+    void this.runAcpSession(agentConfig, task, connection, acpClient, outputDir, inputDir, scanWorkDir).catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
       this.events.onAgentError(agentConfig.id, `ACP session error: ${msg}`);
     });
@@ -95,6 +100,7 @@ export class AcpController {
     acpClient: DispatchAcpClient,
     outputDir?: string,
     inputDir?: string,
+    scanWorkDir?: (dir: string) => Promise<string[]>,
   ): Promise<void> {
     try {
       const caps = agentConfig.acpCapabilities;
@@ -127,17 +133,27 @@ export class AcpController {
         throw sessionErr;
       }
 
-      const promptText = this.buildTaskPrompt(task, outputDir, inputDir);
+      const effectiveOutputDir = outputDir ?? agentConfig.workDir;
+      const scanFn = scanWorkDir ?? (async () => [] as string[]);
 
-      acpClient.flushLogs();
-
-      const result = await connection.prompt({
+      const ctx: WorkflowContext = {
+        connection,
         sessionId: session.sessionId,
-        prompt: [{ type: 'text', text: promptText }],
-      });
+        task,
+        agentConfig,
+        outputDir: effectiveOutputDir,
+        inputDir,
+        acpClient,
+        scanOutputDir: () => scanFn(effectiveOutputDir),
+        log: (msg) => this.events.onProgress(agentConfig.id, task.id, msg),
+        reportProgress: (msg) => this.events.onProgress(agentConfig.id, task.id, msg),
+      };
+
+      const runner = this.createWorkflowRunner();
+      const result = await runner.run(ctx);
 
       acpClient.flushLogs();
-      this.events.onTaskCompleted(agentConfig.id, task.id, result.stopReason);
+      this.events.onTaskCompleted(agentConfig.id, task.id, result.finalStopReason);
     } catch (err: unknown) {
       acpClient.flushLogs();
       const msg = err instanceof Error ? err.message : String(err);
@@ -150,29 +166,11 @@ export class AcpController {
     }
   }
 
-  private buildTaskPrompt(task: Task, outputDir?: string, inputDir?: string): string {
-    const parts = [`Task: ${task.title}`];
-    if (task.description) {
-      parts.push(`\nDescription:\n${task.description}`);
-    }
-    if (task.tags.length > 0) {
-      parts.push(`\nTags: ${task.tags.join(', ')}`);
-    }
-    if (task.metadata) {
-      parts.push(`\nMetadata: ${JSON.stringify(task.metadata)}`);
-    }
-    if (inputDir && task.attachments && task.attachments.length > 0) {
-      const fileList = task.attachments
-        .map((a) => `  - ${a.filename} (${(a.sizeBytes / 1024 / 1024).toFixed(1)} MB)`)
-        .join('\n');
-      parts.push(`\nInput files directory:\n  ${inputDir}\nThe following files have been provided as task attachments:\n${fileList}\nRead these files as needed to complete the task.`);
-    }
-    if (outputDir) {
-      parts.push(`\nIMPORTANT — Artifact output directory:\nWrite ALL output files (results, reports, generated assets, etc.) to this directory:\n  ${outputDir}\nDo NOT write output files to the current working directory or other locations. Files outside the output directory will NOT be collected as task artifacts.`);
-    } else {
-      parts.push(`\nIMPORTANT: Write all output files to the current working directory. The files you create will be automatically collected as task artifacts.`);
-    }
-    return parts.join('\n');
+  private createWorkflowRunner(): TaskWorkflowRunner {
+    return new TaskWorkflowRunner([
+      new InitialTaskPass(),
+      new ArtifactEnforcementPass(),
+    ]);
   }
 
   stopAgent(agentId: string): void {

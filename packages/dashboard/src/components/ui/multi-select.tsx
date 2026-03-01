@@ -2,6 +2,7 @@ import * as React from "react";
 import { Check, ChevronDown, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 interface MultiSelectProps {
@@ -10,6 +11,8 @@ interface MultiSelectProps {
   onChange: (selected: string[]) => void;
   placeholder?: string;
   emptyText?: string;
+  /** Allow typing custom tags not in options. Default true. */
+  creatable?: boolean;
   className?: string;
 }
 
@@ -19,9 +22,18 @@ export function MultiSelect({
   onChange,
   placeholder,
   emptyText,
+  creatable = true,
   className,
 }: MultiSelectProps): React.ReactElement {
   const [open, setOpen] = React.useState(false);
+  const [inputValue, setInputValue] = React.useState("");
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const allOptions = React.useMemo(() => {
+    const set = new Set(options);
+    for (const s of selected) set.add(s);
+    return Array.from(set).sort();
+  }, [options, selected]);
 
   const toggle = (value: string): void => {
     onChange(
@@ -34,6 +46,21 @@ export function MultiSelect({
   const remove = (value: string, e: React.MouseEvent): void => {
     e.stopPropagation();
     onChange(selected.filter((s) => s !== value));
+  };
+
+  const addCustomTag = (): void => {
+    const tag = inputValue.trim().toLowerCase();
+    if (tag && !selected.includes(tag)) {
+      onChange([...selected, tag]);
+      setInputValue("");
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent): void => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addCustomTag();
+    }
   };
 
   return (
@@ -65,13 +92,25 @@ export function MultiSelect({
           <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
         </button>
       </PopoverTrigger>
-      <PopoverContent className="max-h-60 overflow-y-auto p-1">
-        {options.length === 0 ? (
+      <PopoverContent className="max-h-60 overflow-y-auto p-1 w-[var(--radix-popover-trigger-width)]">
+        {creatable && (
+          <div className="p-1 border-b mb-1" onClick={(e) => e.stopPropagation()}>
+            <Input
+              ref={inputRef}
+              placeholder={placeholder}
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              className="h-8 text-sm"
+            />
+          </div>
+        )}
+        {allOptions.length === 0 && !creatable ? (
           <div className="px-2 py-4 text-center text-sm text-muted-foreground">
             {emptyText}
           </div>
         ) : (
-          options.map((option) => {
+          allOptions.map((option) => {
             const isSelected = selected.includes(option);
             return (
               <button

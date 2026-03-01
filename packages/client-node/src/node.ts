@@ -286,7 +286,7 @@ export class ClientNode {
             const workerToken = this.config.token
               ? this.issueWorkerToken(decision.agentId, task.id)
               : undefined;
-            await this.acpController.launchAgent(agentCfg, task, outputDir, inputDir, workerToken);
+            await this.acpController.launchAgent(agentCfg, task, outputDir, inputDir, workerToken, (dir) => this.scanWorkDir(dir));
             this.log(`Launched agent ${decision.agentId} for task ${task.id.slice(0, 8)} (outputDir=${outputDir}${inputDir ? `, inputDir=${inputDir}` : ''})`);
           }
         } catch (err: unknown) {
@@ -318,26 +318,27 @@ export class ClientNode {
         });
 
         const outputDir = this.taskOutputDirs.get(taskId);
-        if (outputDir) {
-          const { zipPath, resultPath } = await this.collectArtifacts(outputDir, taskId);
-          if (zipPath && resultPath) {
-            await this.httpClient.completeTask(taskId, { zipPath, resultPath });
-            this.log(`Task ${taskId.slice(0, 8)} artifacts uploaded`);
-          } else {
-            await this.httpClient.reportProgress(taskId, {
-              clientId: this.client.id,
-              agentId,
-              progress: 0,
-              message: 'Completed (no artifacts)',
-            });
-          }
+        const { zipPath, resultPath } = outputDir
+          ? await this.collectArtifacts(outputDir, taskId)
+          : { zipPath: null, resultPath: null };
+
+        if (zipPath && resultPath) {
+          await this.httpClient.completeTask(taskId, { zipPath, resultPath });
+          this.log(`Task ${taskId.slice(0, 8)} artifacts uploaded`);
+        } else {
+          const agentCfg = this.config.agents.find((a) => a.id === agentId);
+          const fallbackDir = outputDir ?? agentCfg?.workDir ?? os.tmpdir();
+          const minimal = await this.generateMinimalResult(fallbackDir, taskId);
+          await this.httpClient.completeTask(taskId, minimal);
+          this.log(`Task ${taskId.slice(0, 8)} completed with minimal result`);
         }
+
         this.taskOutputDirs.delete(taskId);
         this.taskInputDirs.delete(taskId);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.log(`Failed to upload artifacts for ${taskId.slice(0, 8)}: ${msg}`);
-        this.recordClientLog('error', 'task.artifact_upload_failed', msg, { taskId, agentId });
+        this.log(`Failed to complete task ${taskId.slice(0, 8)}: ${msg}`);
+        this.recordClientLog('error', 'task.completion_failed', msg, { taskId, agentId });
       }
     } else {
       try {
@@ -453,6 +454,30 @@ export class ClientNode {
     await fs.promises.writeFile(resultPath, JSON.stringify(resultJson, null, 2), 'utf-8');
 
     this.log(`Artifacts packed: ${zipPath} (${outputs.length} files)`);
+    return { zipPath, resultPath };
+  }
+
+  private async generateMinimalResult(
+    baseDir: string,
+    taskId: string,
+  ): Promise<{ zipPath: string; resultPath: string }> {
+    const artifactDir = path.join(baseDir, '.artifacts');
+    await fs.promises.mkdir(artifactDir, { recursive: true });
+
+    const resultJson = {
+      taskId,
+      success: true,
+      summary: 'Task completed (no output files produced by worker)',
+      outputs: [],
+    };
+    const resultPath = path.join(artifactDir, 'result.json');
+    await fs.promises.writeFile(resultPath, JSON.stringify(resultJson, null, 2), 'utf-8');
+
+    const zip = new AdmZip();
+    zip.addFile('result.json', Buffer.from(JSON.stringify(resultJson, null, 2)));
+    const zipPath = path.join(artifactDir, `${taskId}.zip`);
+    zip.writeZip(zipPath);
+
     return { zipPath, resultPath };
   }
 

@@ -382,7 +382,7 @@ Server ────[check: 15s]──────→ 标记超时 Client 为 off
 4. **状态不一致** — 模拟脚本跟踪的 worker 状态（busy/idle）与 Server 上的 agent 状态是分离的，真实 `WorkerManager` 通过进程退出事件自动同步
 5. **ACP session 悬挂** [NEW 2026-03-01] — 非 ACP 的 placeholder stub（如 `node -e "setTimeout(()=>process.exit(0), 5000)"`）不会响应 ACP `initialize()` 请求。`ClientSideConnection.initialize()` 永远等不到 JSON-RPC 响应，Promise 悬挂。结果：`onTaskCompleted` 永远不触发，worker 状态被腐坏（永远 busy 或假 idle 导致贪婪 claim），单 worker 可能同时持有所有 pending 任务
 
-### QA 环境启动检查清单
+### QA 环境启动检查清单 [UPDATED 2026-03-01]
 
 启动 QA 测试环境时，逐项确认：
 
@@ -390,10 +390,18 @@ Server ────[check: 15s]──────→ 标记超时 Client 为 off
 - [ ] Server 心跳检测已启动（`clientService.startHeartbeatCheck()`）
 - [ ] ClientNode 是真实 `ClientNode` 实例（非 HTTP 注册 + 外部心跳）
 - [ ] Worker 通过 `AcpController` 启动为子进程（非主进程内模拟）
-- [ ] **Worker 是真实 ACP Agent**（能响应 JSON-RPC `initialize`，非纯 console.log stub）
-- [ ] 进度通过 CLI → IPC 链路上报（非直接 HTTP 调用）
+- [ ] **Worker 是真实 ACP Agent**（推荐 `claude-code-acp`，见 `backend/index.md` § Supported ACP Workers）
+- [ ] **`ANTHROPIC_API_KEY` 已设置**（使用 `claude-code-acp` 时必须）
+- [ ] 进度通过 ACP session → Node → Server 链路上报（非直接 HTTP 调用）
 - [ ] 产物是 Worker 真实生成的文件（非空壳 zip）
 - [ ] Dashboard 连接到同一个 Server 实例
+- [ ] Worker command 使用正确的二进制名（`claude-code-acp`，非旧名 `claude-agent-acp`）
+
+> **⚠️ claude-code-acp 命名变更** [NEW 2026-03-01]
+>
+> npm 包 `@zed-industries/claude-code-acp` 的二进制名为 `claude-code-acp`。
+> 早期代码（如 `.trellis/qa-alpha/start-node.ts`）使用的旧名 `claude-agent-acp` 已过时。
+> 配置 AgentConfig 时 `command` 字段应使用 `claude-code-acp`。
 
 > **⚠️ Stub/Placeholder Agent 的局限** [NEW 2026-03-01]
 >

@@ -7,8 +7,8 @@
  * - No direct Worker-to-Server communication
  *
  * Agent types:
- * - claude-agent-acp: Claude Agent via ACP adapter (requires ANTHROPIC_API_KEY)
- *   Install: npm install -g @zed-industries/claude-agent-acp
+ * - claude-code-acp: Claude Code via ACP adapter (requires ANTHROPIC_API_KEY)
+ *   Install: npm install -g @zed-industries/claude-code-acp
  * - opencode acp: OpenCode with native ACP support (future)
  */
 
@@ -33,7 +33,7 @@ const agents: AgentConfig[] = [
   {
     id: 'worker-claude',
     type: 'worker',
-    command: 'claude-agent-acp',
+    command: 'claude-code-acp',
     args: [],
     workDir: (() => { const d = path.join(WORK_BASE, 'claude'); fs.mkdirSync(d, { recursive: true }); return d; })(),
     capabilities: ['code', 'docs', 'analysis'],
