@@ -46,6 +46,7 @@
 | `DISPATCH_ARCHIVE_AFTER_DAYS` | number | `1` | 终态任务隔 N 天后归档（0=立即） |
 | `DISPATCH_ARCHIVE_CACHE_MAX_AGE` | number | `3600000` | 归档详情 TTL 缓存时长（ms） |
 | `DISPATCH_AUTH_ENABLED` | string | `false` | 是否启用 Token 鉴权（"true"/"false"） |
+| `DISPATCH_AUTH_TOKENS` | string | — | [NEW 2026-03-01] 逗号分隔的静态 Token 列表；可附加 `:role` 后缀指定角色（admin/client/operator），无后缀默认 client。例：`tok_abc,tok_op:operator`。与配置文件 `auth.tokens` 合并（环境变量追加在后，重复 token 后者覆盖角色） |
 | `DISPATCH_TOKEN` | string | — | [NEW 2026-03-01] CLI/Worker 鉴权 Token；CLI 通过此变量或 `--token` 传递；ClientNode 为 Worker 子进程自动注入临时 Token |
 | `DISPATCH_IPC_PATH` | string | — | [NEW 2026-03-01] ClientNode 为 Worker 子进程注入的 IPC socket/pipe 路径，Worker 通过此变量连接 CLI → IPC |
 

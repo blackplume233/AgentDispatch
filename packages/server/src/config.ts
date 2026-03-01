@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { ServerConfig } from '@agentdispatch/shared';
+import type { ServerConfig, AuthTokenRole } from '@agentdispatch/shared';
+
+type TokenEntry = string | { token: string; role?: AuthTokenRole };
 
 const DEFAULT_CONFIG: ServerConfig = {
   host: '0.0.0.0',
@@ -116,8 +118,45 @@ export function loadConfig(configPath?: string): ServerConfig {
       enabled:
         (process.env['DISPATCH_AUTH_ENABLED'] ?? String(fc.auth?.enabled ?? DEFAULT_CONFIG.auth.enabled)) === 'true',
       users: fc.auth?.users ?? DEFAULT_CONFIG.auth.users,
-      tokens: fc.auth?.tokens ?? DEFAULT_CONFIG.auth.tokens,
+      tokens: mergeTokens(fc.auth?.tokens, process.env['DISPATCH_AUTH_TOKENS']),
       sessionTtl: fc.auth?.sessionTtl ?? DEFAULT_CONFIG.auth.sessionTtl,
     },
   };
+}
+
+/**
+ * Parse `DISPATCH_AUTH_TOKENS` env var and merge with config-file tokens.
+ *
+ * Format: comma-separated, optional `:role` suffix per entry.
+ *   e.g. "tok_abc123,tok_xyz:operator,tok_admin:admin"
+ *
+ * Env-var tokens are appended after config-file tokens.
+ * Duplicates (same token string) are kept — AuthManager.Map deduplicates
+ * and later entries win, so env vars can override roles from the config file.
+ */
+function mergeTokens(
+  fileTokens: TokenEntry[] | undefined,
+  envTokens: string | undefined,
+): TokenEntry[] {
+  const base: TokenEntry[] = fileTokens ?? DEFAULT_CONFIG.auth.tokens;
+  if (!envTokens) return base;
+
+  const VALID_ROLES = new Set<AuthTokenRole>(['admin', 'client', 'operator']);
+
+  const parsed: TokenEntry[] = envTokens
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((segment) => {
+      const colonIdx = segment.lastIndexOf(':');
+      if (colonIdx > 0) {
+        const maybeRole = segment.slice(colonIdx + 1) as AuthTokenRole;
+        if (VALID_ROLES.has(maybeRole)) {
+          return { token: segment.slice(0, colonIdx), role: maybeRole };
+        }
+      }
+      return segment;
+    });
+
+  return [...base, ...parsed];
 }
