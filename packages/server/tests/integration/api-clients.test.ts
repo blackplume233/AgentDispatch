@@ -38,13 +38,19 @@ describe('Client API', () => {
         httpLog: false,
         auditLog: true,
       },
+      archive: {
+        checkInterval: 3600000,
+        archiveAfterDays: 1,
+        cacheMaxAge: 3600000,
+      },
     };
     const result = await createApp(config);
     app = result.app;
+    result.context.archiveScheduler.stop();
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) await app.close();
     await fs.promises.rm(tmpDir, { recursive: true, force: true });
   });
 

@@ -113,9 +113,17 @@ export class TaskService {
 
   async updateTask(taskId: string, dto: UpdateTaskDTO): Promise<Task> {
     const task = await this.getTask(taskId);
+    const allowed: (keyof UpdateTaskDTO)[] = ['title', 'description', 'tags', 'priority', 'metadata'];
+    const patch: Partial<Task> = {};
+    for (const key of allowed) {
+      if (key in dto && dto[key] !== undefined) {
+        (patch as Record<string, unknown>)[key] = dto[key];
+      }
+    }
+
     const updated: Task = {
       ...task,
-      ...dto,
+      ...patch,
       updatedAt: new Date().toISOString(),
     };
 

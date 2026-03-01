@@ -90,9 +90,21 @@ export function loadConfig(configPath?: string): ServerConfig {
       auditLog: fc.logging?.auditLog ?? DEFAULT_CONFIG.logging.auditLog,
     },
     archive: {
-      checkInterval: fc.archive?.checkInterval ?? DEFAULT_CONFIG.archive.checkInterval,
-      archiveAfterDays: fc.archive?.archiveAfterDays ?? DEFAULT_CONFIG.archive.archiveAfterDays,
-      cacheMaxAge: fc.archive?.cacheMaxAge ?? DEFAULT_CONFIG.archive.cacheMaxAge,
+      checkInterval: Number(
+        process.env['DISPATCH_ARCHIVE_CHECK_INTERVAL'] ??
+          fc.archive?.checkInterval ??
+          DEFAULT_CONFIG.archive.checkInterval,
+      ),
+      archiveAfterDays: Number(
+        process.env['DISPATCH_ARCHIVE_AFTER_DAYS'] ??
+          fc.archive?.archiveAfterDays ??
+          DEFAULT_CONFIG.archive.archiveAfterDays,
+      ),
+      cacheMaxAge: Number(
+        process.env['DISPATCH_ARCHIVE_CACHE_MAX_AGE'] ??
+          fc.archive?.cacheMaxAge ??
+          DEFAULT_CONFIG.archive.cacheMaxAge,
+      ),
     },
   };
 }

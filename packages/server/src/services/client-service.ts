@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { Client, AgentInfo, RegisterClientDTO, HeartbeatDTO } from '@agentdispatch/shared';
-import { ErrorCode, NotFoundError, ConflictError } from '@agentdispatch/shared';
+import { ErrorCode, NotFoundError, ConflictError, ValidationError } from '@agentdispatch/shared';
 import type { OperationQueue } from '../queue/operation-queue.js';
 import type { ClientStore } from '../store/client-store.js';
 import type { Logger } from '../utils/logger.js';
@@ -30,6 +30,16 @@ export class ClientService {
   }
 
   async register(dto: RegisterClientDTO): Promise<Client> {
+    if (!dto.name || typeof dto.name !== 'string') {
+      throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'name is required and must be a string');
+    }
+    if (!dto.host || typeof dto.host !== 'string') {
+      throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'host is required and must be a string');
+    }
+    if (!Array.isArray(dto.agents)) {
+      throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'agents is required and must be an array');
+    }
+
     const existing = await this.findByName(dto.name);
     if (existing) {
       throw new ConflictError(
