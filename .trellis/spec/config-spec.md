@@ -23,6 +23,7 @@
 | 2026-03-01 | ServerConfig 新增 `attachments` 配置段；Server 数据目录新增 `attachments/{task-id}/` 存储结构；ClientNode 新增 `{workDir}/.dispatch/input/{taskId-prefix}/` 输入目录 | [CHANGED] | Server, ClientNode |
 | 2026-02-28 | ServerConfig 新增 `artifacts` 配置段；Server 数据目录新增 `artifacts/{task-id}/` 存储结构 | [CHANGED] | Server |
 | 2026-02-28 | ClientConfig 新增 `dispatchMode` 字段；Manager Agent 从必须改为按模式可选；DispatchRule 新增 `priority`；autoDispatch 新增 `fallbackAction` | [CHANGED] | ClientNode, Server, Dashboard |
+| 2026-03-01 | AgentConfig.command 新增 Common Mistake 警告：裸命令启动交互终端而非 ACP 模式；全部 14 个 Agent 命令经逐一核实修正 | [CHANGED] | ClientNode, Docs |
 | 2026-03-01 | AgentConfig.command 示例修正：Claude 需通过 `claude-agent-acp` 适配器、Codex 需通过 `codex-acp` 适配器；新增 ACP 兼容 Agent 完整列表引用 | [CHANGED] | ClientNode, Docs |
 | 2026-02-28 | AgentConfig 明确 ACP SDK 集成字段；新增 `acpCapabilities` 配置段；`command` 字段说明更新为 ACP Agent 启动命令 | [CHANGED] | ClientNode |
 | 2026-03-01 | auth.tokens 支持角色：`string` 默认 client 角色，`{ token, role }` 指定角色（admin/client/operator）；operator 角色禁止 claim/release/progress/complete/cancel/patch 等 worker 操作；新增 `FORBIDDEN` 错误码 (403) | [CHANGED] | Server |
@@ -294,6 +295,40 @@ interface AgentConfig {
   permissionPolicy?: 'auto-allow' | 'auto-deny' | 'prompt';  // 默认 'auto-allow'
 }
 ```
+
+### Common Mistake: `command` 使用裸命令导致 Agent 启动为交互终端
+
+> **Warning**: 几乎所有 Agent CLI 的**默认模式是交互式终端**（TUI），不是 ACP stdio 服务器。
+> 直接使用裸命令（如 `"command": "gemini"` 或 `"command": "cline"`）会导致子进程等待用户输入而非 JSON-RPC 消息，
+> 表现为 Worker 启动后立即挂起或超时。
+
+**症状**：Worker 进程启动但不响应 ACP initialize 消息；stderr 可能输出交互式 UI 的 ANSI 转义序列。
+
+**原因**：Agent CLI 默认进入交互模式，需要特定子命令/标志才能切换到 ACP stdio 通信模式。
+
+**修正**：
+
+```jsonc
+// ❌ 错误 — 启动交互终端
+{ "command": "gemini" }
+{ "command": "cline" }
+{ "command": "augment" }
+
+// ✅ 正确 — 进入 ACP stdio 模式
+{ "command": "gemini", "args": ["--experimental-acp"] }
+{ "command": "cline",  "args": ["--acp"] }
+{ "command": "auggie", "args": ["--acp"] }  // 注意: 命令名是 auggie 不是 augment
+```
+
+**规律总结**：
+- 子命令风格（`acp`）：Goose、OpenCode、Kiro、Kimi、OpenHands
+- 标志风格（`--acp` / `--experimental-acp`）：Cline、Augment(auggie)、Qwen Code(qwen)、Gemini
+- 独立适配器命令：`claude-agent-acp`、`codex-acp`、`vibe-acp`、`pi-acp`（天然 ACP 模式，无需额外参数）
+
+**预防**：配置新 Agent 前，务必查阅其 ACP 文档确认 stdio 模式启动方式。
+参考列表：<https://agentclientprotocol.com/get-started/agents>
+
+---
 
 **ACP 能力默认值说明**：
 
