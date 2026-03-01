@@ -85,7 +85,7 @@ The Manager Agent receives task information and available Worker details, then r
     {
       "id": "manager-agent",
       "type": "manager",
-      "command": "claude --agent",
+      "command": "claude-agent-acp",
       "workDir": "/path/to/manager/workdir",
       "acpCapabilities": {
         "fs": { "readTextFile": true, "writeTextFile": false },
@@ -95,7 +95,7 @@ The Manager Agent receives task information and available Worker details, then r
     {
       "id": "worker-1",
       "type": "worker",
-      "command": "claude --agent",
+      "command": "claude-agent-acp",
       "workDir": "/path/to/worker/workdir",
       "capabilities": ["backend", "api"]
     }
@@ -138,13 +138,13 @@ When the Manager Agent is available, it handles dispatch decisions. When unavail
     {
       "id": "manager-agent",
       "type": "manager",
-      "command": "claude --agent",
+      "command": "claude-agent-acp",
       "workDir": "/path/to/manager/workdir"
     },
     {
       "id": "worker-backend",
       "type": "worker",
-      "command": "claude --agent",
+      "command": "claude-agent-acp",
       "workDir": "/path/to/worker/workdir",
       "capabilities": ["node", "typescript", "backend"]
     }

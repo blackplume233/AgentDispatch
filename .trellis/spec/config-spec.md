@@ -23,6 +23,7 @@
 | 2026-03-01 | ServerConfig 新增 `attachments` 配置段；Server 数据目录新增 `attachments/{task-id}/` 存储结构；ClientNode 新增 `{workDir}/.dispatch/input/{taskId-prefix}/` 输入目录 | [CHANGED] | Server, ClientNode |
 | 2026-02-28 | ServerConfig 新增 `artifacts` 配置段；Server 数据目录新增 `artifacts/{task-id}/` 存储结构 | [CHANGED] | Server |
 | 2026-02-28 | ClientConfig 新增 `dispatchMode` 字段；Manager Agent 从必须改为按模式可选；DispatchRule 新增 `priority`；autoDispatch 新增 `fallbackAction` | [CHANGED] | ClientNode, Server, Dashboard |
+| 2026-03-01 | AgentConfig.command 示例修正：Claude 需通过 `claude-agent-acp` 适配器、Codex 需通过 `codex-acp` 适配器；新增 ACP 兼容 Agent 完整列表引用 | [CHANGED] | ClientNode, Docs |
 | 2026-02-28 | AgentConfig 明确 ACP SDK 集成字段；新增 `acpCapabilities` 配置段；`command` 字段说明更新为 ACP Agent 启动命令 | [CHANGED] | ClientNode |
 | 2026-03-01 | auth.tokens 支持角色：`string` 默认 client 角色，`{ token, role }` 指定角色（admin/client/operator）；operator 角色禁止 claim/release/progress/complete/cancel/patch 等 worker 操作；新增 `FORBIDDEN` 错误码 (403) | [CHANGED] | Server |
 | 2026-03-01 | ServerConfig 新增 `auth` 配置段（enabled/users/tokens/sessionTtl）；新增 `DISPATCH_AUTH_ENABLED` 环境变量；ClientConfig 新增 `token` 可选字段；新增 auth 路由（login/logout/me）；Server 增加 Fastify onRequest auth hook | [CHANGED] | Server, ClientNode, Dashboard |
@@ -244,10 +245,24 @@ interface AgentConfig {
   id: string;                      // Agent 唯一 ID
   type: 'manager' | 'worker';     // 角色类型
 
-  // ACP 进程配置 [CHANGED 2026-02-28]
+  // ACP 进程配置 [CHANGED 2026-03-01]
   // command 是 ACP Agent 子进程的启动命令，通过 child_process.spawn 执行
   // Agent 必须支持 ACP 协议 (JSON-RPC 2.0 over stdin/stdout ndjson)
-  // 示例: "npx tsx ./my-agent.ts"、"claude --agent"、"gemini-cli"
+  // 参考 ACP 兼容 Agent 列表: https://agentclientprotocol.com/get-started/agents
+  //
+  // 示例（原生 ACP）:
+  //   "gemini"          — Gemini CLI 原生支持 ACP
+  //   "goose"           — Goose 原生支持 ACP
+  //   "opencode"        — OpenCode 原生支持 ACP
+  //   "kiro"            — Kiro CLI 原生支持 ACP
+  //
+  // 示例（通过适配器）:
+  //   "claude-agent-acp"  — Claude Agent (npm: @zed-industries/claude-agent-acp)
+  //   "codex-acp"         — Codex CLI (npm: @zed-industries/codex-acp)
+  //
+  // 示例（自定义 ACP Agent）:
+  //   "npx tsx ./my-agent.ts"
+  //   "python ./my_agent.py"
   command: string;
   args?: string[];                 // 启动参数（可选，command 也可包含参数）
 
