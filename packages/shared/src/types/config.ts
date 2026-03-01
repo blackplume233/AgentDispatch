@@ -63,6 +63,7 @@ export interface AgentConfig {
   type: 'manager' | 'worker';
   command: string;
   args?: string[];
+  env?: Record<string, string>;
   workDir: string;
   capabilities?: string[];
   autoClaimTags?: string[];

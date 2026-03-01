@@ -42,7 +42,9 @@ export class AcpController {
     workerToken?: string,
     scanWorkDir?: (dir: string) => Promise<string[]>,
   ): Promise<void> {
-    const extraEnv: Record<string, string> = {};
+    const extraEnv: Record<string, string> = {
+      ...(agentConfig.env ?? {}),
+    };
     if (workerToken) {
       extraEnv['DISPATCH_TOKEN'] = workerToken;
       extraEnv['DISPATCH_IPC_PATH'] = this._nodeConfig.ipc.path;

@@ -25,6 +25,7 @@
 | 2026-02-28 | ClientConfig 新增 `dispatchMode` 字段；Manager Agent 从必须改为按模式可选；DispatchRule 新增 `priority`；autoDispatch 新增 `fallbackAction` | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-03-01 | AgentConfig.command 新增 Common Mistake 警告：裸命令启动交互终端而非 ACP 模式；全部 14 个 Agent 命令经逐一核实修正 | [CHANGED] | ClientNode, Docs |
 | 2026-03-01 | AgentConfig.command 示例修正：Claude 需通过 `claude-agent-acp` 适配器、Codex 需通过 `codex-acp` 适配器；新增 ACP 兼容 Agent 完整列表引用 | [CHANGED] | ClientNode, Docs |
+| 2026-03-01 | AgentConfig 新增 `env` 可选字段：允许在配置中声明注入子进程的环境变量（如 API Key、模型端点），优先级：process.env < agentConfig.env < 系统注入的 DISPATCH_* | [CHANGED] | ClientNode |
 | 2026-02-28 | AgentConfig 明确 ACP SDK 集成字段；新增 `acpCapabilities` 配置段；`command` 字段说明更新为 ACP Agent 启动命令 | [CHANGED] | ClientNode |
 | 2026-03-01 | auth.tokens 支持角色：`string` 默认 client 角色，`{ token, role }` 指定角色（admin/client/operator）；operator 角色禁止 claim/release/progress/complete/cancel/patch 等 worker 操作；新增 `FORBIDDEN` 错误码 (403) | [CHANGED] | Server |
 | 2026-03-01 | ServerConfig 新增 `auth` 配置段（enabled/users/tokens/sessionTtl）；新增 `DISPATCH_AUTH_ENABLED` 环境变量；ClientConfig 新增 `token` 可选字段；新增 auth 路由（login/logout/me）；Server 增加 Fastify onRequest auth hook | [CHANGED] | Server, ClientNode, Dashboard |
@@ -272,6 +273,12 @@ interface AgentConfig {
   //   "python ./my_agent.py"
   command: string;
   args?: string[];                 // 启动参数（可选，command 也可包含参数）
+
+  // [CHANGED 2026-03-01] 注入子进程的额外环境变量
+  // 用于传递 API Key、模型端点等运行时配置
+  // 优先级：process.env (继承) < env (本字段) < DISPATCH_TOKEN / DISPATCH_IPC_PATH (系统注入)
+  // ⚠️ 避免在此存储敏感信息（配置文件明文），生产环境建议用外部 secret manager 注入 process.env
+  env?: Record<string, string>;
 
   workDir: string;                 // Agent 工作目录（ACP session cwd）；保留 Agent 自身 skills/rules/上下文；产物输出到 {workDir}/.dispatch/output/{taskId-prefix}/
   capabilities?: string[];         // 职责倾向（Worker 类型）
