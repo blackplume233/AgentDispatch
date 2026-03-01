@@ -474,23 +474,25 @@ Client Node 通过 ACP 向 Worker 发送任务时，使用 **TaskWorkflowRunner*
 
 ### 4.0 ACP 兼容 Agent 参考表
 
-| Agent | ACP 支持 | command 示例 | 安装方式 |
-|-------|---------|-------------|---------|
-| **Claude Agent** | 适配器 | `claude-agent-acp` | `npm i -g @zed-industries/claude-agent-acp` |
-| **Codex CLI** | 适配器 | `codex-acp` | `npm i -g @zed-industries/codex-acp` |
-| **Gemini CLI** | 原生 | `gemini` | [github.com/google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
-| **Goose** | 原生 | `goose` | [block.github.io/goose](https://block.github.io/goose/docs/guides/acp-clients) |
-| **Kiro CLI** | 原生 | `kiro` | [kiro.dev/docs/cli/acp](https://kiro.dev/docs/cli/acp/) |
-| **Kimi CLI** | 原生 | `kimi` | [github.com/MoonshotAI/kimi-cli](https://github.com/MoonshotAI/kimi-cli) |
-| **OpenCode** | 原生 | `opencode` | [github.com/sst/opencode](https://github.com/sst/opencode) |
-| **Augment Code** | 原生 | `augment` | [docs.augmentcode.com/cli/acp](https://docs.augmentcode.com/cli/acp) |
-| **Cline** | 原生 | `cline` | [cline.bot](https://cline.bot/) |
-| **Qwen Code** | 原生 | `qwen-code` | [github.com/QwenLM/qwen-code](https://github.com/QwenLM/qwen-code) |
-| **Mistral Vibe** | 原生 | `mistral-vibe` | [github.com/mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe) |
-| **OpenHands** | 原生 | — | [docs.openhands.dev](https://docs.openhands.dev/openhands/usage/run-openhands/acp) |
-| **GitHub Copilot** | 公测 | — | [github.com/features/copilot](https://github.com/features/copilot) |
-| **Pi** | 适配器 | `pi-acp` | [github.com/svkozak/pi-acp](https://github.com/svkozak/pi-acp) |
-| 自定义 Agent | 需自行实现 | `node ./agent.mjs` | 使用 ACP SDK（TypeScript/Python/Rust/Kotlin） |
+| Agent | ACP 支持 | command | args | 安装方式 |
+|-------|---------|---------|------|---------|
+| **Claude Agent** | 适配器 | `claude-agent-acp` | — | `npm i -g @zed-industries/claude-agent-acp` |
+| **Codex CLI** | 适配器 | `codex-acp` | — | `npm i -g @zed-industries/codex-acp` |
+| **Gemini CLI** | 原生 | `gemini` | `["--experimental-acp"]` | `npm i -g @google/gemini-cli` |
+| **Goose** | 原生 | `goose` | `["acp"]` | [block.github.io/goose](https://block.github.io/goose/docs/guides/acp-clients) |
+| **OpenCode** | 原生 | `opencode` | `["acp"]` | [open-code.ai](https://open-code.ai/docs/en/acp) |
+| **Kiro CLI** | 原生 | `kiro` | — | [kiro.dev/cli](https://kiro.dev/cli/) |
+| **Kimi CLI** | 原生 | `kimi` | — | [github.com/MoonshotAI/kimi-cli](https://github.com/MoonshotAI/kimi-cli) |
+| **Augment Code** | 原生 | `augment` | — | [docs.augmentcode.com/cli/acp](https://docs.augmentcode.com/cli/acp) |
+| **Cline** | 原生 | `cline` | — | [cline.bot](https://cline.bot/) |
+| **Qwen Code** | 原生 | `qwen-code` | — | [github.com/QwenLM/qwen-code](https://github.com/QwenLM/qwen-code) |
+| **Mistral Vibe** | 原生 | `mistral-vibe` | — | [github.com/mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe) |
+| **OpenHands** | 原生 | — | — | [docs.openhands.dev](https://docs.openhands.dev/openhands/usage/run-openhands/acp) |
+| **GitHub Copilot** | 公测 | — | — | [github.com/features/copilot](https://github.com/features/copilot) |
+| **Pi** | 适配器 | `pi-acp` | — | [github.com/svkozak/pi-acp](https://github.com/svkozak/pi-acp) |
+| 自定义 Agent | 需自行实现 | `node ./agent.mjs` | — | 使用 ACP SDK（TypeScript/Python/Rust/Kotlin） |
+
+> **重要**：很多 Agent CLI 的"普通模式"是交互式终端，不等于 ACP 模式。必须使用上表中对应的 `args` 参数才能进入 ACP stdio 通信模式。
 
 ACP SDK 库：
 - TypeScript: `@anthropic-ai/agent-client-protocol` — [文档](https://agentclientprotocol.com/libraries/typescript)
@@ -558,9 +560,11 @@ npm install -g @zed-industries/codex-acp
 
 > 需要设置 `OPENAI_API_KEY` 或 `CODEX_API_KEY` 环境变量。
 
-### 4.3 挂载原生 ACP Agent（Gemini、Goose 等）
+### 4.3 挂载原生 ACP Agent（Gemini、Goose、OpenCode 等）
 
-部分 Agent CLI 原生实现了 ACP 协议，无需适配器：
+部分 Agent CLI 内置 ACP 协议支持，但通常需要特定的子命令或标志才能进入 ACP 模式（而非交互终端模式）。
+
+**Gemini CLI**（需 `--experimental-acp` 标志）：
 
 ```json
 {
@@ -569,9 +573,45 @@ npm install -g @zed-industries/codex-acp
       "id": "gemini-worker",
       "type": "worker",
       "command": "gemini",
+      "args": ["--experimental-acp"],
       "workDir": "/workspace/gemini-worker",
       "capabilities": ["code-generation", "analysis"],
       "permissionPolicy": "auto-allow"
+    }
+  ]
+}
+```
+
+**Goose**（需 `acp` 子命令）：
+
+```json
+{
+  "agents": [
+    {
+      "id": "goose-worker",
+      "type": "worker",
+      "command": "goose",
+      "args": ["acp"],
+      "workDir": "/workspace/goose-worker",
+      "capabilities": ["general"],
+      "permissionPolicy": "auto-allow"
+    }
+  ]
+}
+```
+
+**OpenCode**（需 `acp` 子命令）：
+
+```json
+{
+  "agents": [
+    {
+      "id": "opencode-worker",
+      "type": "worker",
+      "command": "opencode",
+      "args": ["acp"],
+      "workDir": "/workspace/opencode-worker",
+      "capabilities": ["code-generation", "refactor"]
     }
   ]
 }
@@ -651,6 +691,7 @@ Manager Agent 不执行任务，而是为 Client Node 提供分发建议：
       "id": "worker-frontend",
       "type": "worker",
       "command": "gemini",
+      "args": ["--experimental-acp"],
       "workDir": "/workspace/frontend",
       "capabilities": ["frontend", "react", "css"]
     }
@@ -706,6 +747,7 @@ Manager 收到的咨询 prompt 包含：任务信息 + 所有可用 Worker 的 I
       "id": "tester",
       "type": "worker",
       "command": "gemini",
+      "args": ["--experimental-acp"],
       "workDir": "/workspace/tester",
       "capabilities": ["testing", "typescript", "jest", "playwright"]
     },
@@ -713,6 +755,7 @@ Manager 收到的咨询 prompt 包含：任务信息 + 所有可用 Worker 的 I
       "id": "writer",
       "type": "worker",
       "command": "goose",
+      "args": ["acp"],
       "workDir": "/workspace/writer",
       "capabilities": ["writing", "documentation", "markdown"]
     }
