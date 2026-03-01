@@ -1,13 +1,13 @@
 {
   "serverPid": 52012,
-  "nodePid": null,
+  "nodePid": 34744,
   "serverPort": 9800,
   "serverUrl": "http://localhost:9800",
-  "nodeClientId": null,
-  "nodeName": null,
+  "nodeClientId": "b7bee02a-529b-456f-bf0b-05e32b9c68b2",
+  "nodeName": "qa-real-node-v2",
   "buildHash": "db0fd8e8ecc76e368466ce76a38cd00218a36570",
-  "buildTimestamp": "2026-03-01T01:40:00Z",
-  "roundCounter": 2,
+  "buildTimestamp": "2026-03-01T01:46:00Z",
+  "roundCounter": 3,
   "dataDir": ".trellis/qa-alpha/data",
   "logsDir": ".trellis/qa-alpha/logs",
   "status": "running"

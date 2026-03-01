@@ -31,6 +31,9 @@ Desktop.ini
 # Trellis issues dirty tracker
 .trellis/issues/.dirty
 
+# Runtime data (server)
+packages/server/data/
+
 # Logs
 *.log
 logs/

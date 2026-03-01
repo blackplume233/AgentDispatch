@@ -7,7 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { useCreateTask } from "@/hooks/use-tasks";
+import { useWorkerTags } from "@/hooks/use-worker-tags";
 import type { TaskPriority } from "@/types";
 
 interface CreateTaskDialogProps {
@@ -18,9 +20,10 @@ export function CreateTaskDialog({ onClose }: CreateTaskDialogProps): React.Reac
   const { t } = useTranslation();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [tags, setTags] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [priority, setPriority] = useState<TaskPriority>("normal");
   const mutation = useCreateTask();
+  const { tags: availableTags } = useWorkerTags();
 
   const handleSubmit = (e: React.FormEvent): void => {
     e.preventDefault();
@@ -28,10 +31,7 @@ export function CreateTaskDialog({ onClose }: CreateTaskDialogProps): React.Reac
       {
         title,
         description: description || undefined,
-        tags: tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
+        tags,
         priority,
       },
       { onSuccess: () => onClose() },
@@ -66,12 +66,13 @@ export function CreateTaskDialog({ onClose }: CreateTaskDialogProps): React.Reac
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="tags">{t("tasks.fieldTags")}</Label>
-            <Input
-              id="tags"
-              value={tags}
-              onChange={(e) => setTags(e.target.value)}
-              placeholder={t("tasks.fieldTagsHint")}
+            <Label>{t("tasks.fieldTags")}</Label>
+            <MultiSelect
+              options={availableTags}
+              selected={tags}
+              onChange={setTags}
+              placeholder={t("tasks.fieldTagsPlaceholder")}
+              emptyText={t("tasks.fieldTagsEmpty")}
             />
           </div>
           <div className="space-y-2">

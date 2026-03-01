@@ -49,7 +49,8 @@ export const zhCN = {
     fieldTitle: "标题",
     fieldDescription: "描述",
     fieldTags: "标签",
-    fieldTagsHint: "逗号分隔",
+    fieldTagsPlaceholder: "选择标签...",
+    fieldTagsEmpty: "暂无可用的 Worker 标签",
     fieldPriority: "优先级",
     creating: "创建中...",
     failedCancelled: "失败 / 已取消",
@@ -81,6 +82,7 @@ export const zhCN = {
       cancelConfirm: "确定要取消此任务吗？",
       cancelling: "取消中...",
       interactionTimeline: "AI 交互时间线",
+      steps: "条记录",
       noLogs: "暂无交互日志",
       interactionTypes: {
         prompt: "提示词",

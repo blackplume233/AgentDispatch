@@ -49,7 +49,8 @@ export const en = {
     fieldTitle: "Title",
     fieldDescription: "Description",
     fieldTags: "Tags",
-    fieldTagsHint: "Comma-separated",
+    fieldTagsPlaceholder: "Select tags...",
+    fieldTagsEmpty: "No worker tags available",
     fieldPriority: "Priority",
     creating: "Creating...",
     failedCancelled: "Failed / Cancelled",
@@ -81,6 +82,7 @@ export const en = {
       cancelConfirm: "Are you sure you want to cancel this task?",
       cancelling: "Cancelling...",
       interactionTimeline: "AI Interaction Timeline",
+      steps: "steps",
       noLogs: "No interaction logs yet",
       interactionTypes: {
         prompt: "Prompt",

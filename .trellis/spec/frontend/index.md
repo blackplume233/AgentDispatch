@@ -37,6 +37,7 @@ packages/dashboard/
 │   ├── hooks/
 │   │   ├── use-tasks.ts        # Task 数据 hooks
 │   │   ├── use-clients.ts      # Client 数据 hooks
+│   │   ├── use-worker-tags.ts  # 从 clients 提取有效 worker tags
 │   │   └── use-theme.ts        # 暗色/亮色主题切换
 │   ├── i18n/
 │   │   ├── index.ts            # i18next 初始化
@@ -55,6 +56,8 @@ packages/dashboard/
 │   │   │   ├── dialog.tsx
 │   │   │   ├── dropdown-menu.tsx
 │   │   │   ├── select.tsx
+│   │   │   ├── popover.tsx
+│   │   │   ├── multi-select.tsx
 │   │   │   ├── label.tsx
 │   │   │   ├── tabs.tsx
 │   │   │   ├── separator.tsx

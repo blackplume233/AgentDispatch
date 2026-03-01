@@ -66,6 +66,7 @@ export function TaskDetailPage(): React.ReactElement {
   const hasArtifacts = !!task?.artifacts;
   const { data: artifactFiles } = useArtifactFiles(id, hasArtifacts);
 
+  const [timelineOpen, setTimelineOpen] = useState(isActive);
   const [cancelling, setCancelling] = useState(false);
   const handleCancel = useCallback(async (): Promise<void> => {
     if (!confirm(t("tasks.detail.cancelConfirm"))) return;
@@ -294,26 +295,37 @@ export function TaskDetailPage(): React.ReactElement {
 
       {/* Interaction Timeline */}
       <Card>
-        <CardHeader>
+        <CardHeader
+          className="cursor-pointer select-none"
+          onClick={() => setTimelineOpen((prev) => !prev)}
+        >
           <CardTitle className="flex items-center gap-2 text-base">
+            {timelineOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
             <Brain className="h-4 w-4" />
             {t("tasks.detail.interactionTimeline")}
             {isActive && (
               <span className="ml-2 h-2 w-2 rounded-full bg-green-500 animate-pulse" />
             )}
+            {!isActive && logs.length > 0 && (
+              <Badge variant="secondary" className="ml-auto text-[10px] py-0 h-5 font-normal">
+                {mergeLogs(logs).length} {t("tasks.detail.steps")}
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          {logs.length > 0 ? (
-            <div className="space-y-3">
-              {mergeLogs(logs).map((entry) => (
-                <InteractionEntry key={entry.id} entry={entry} />
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t("tasks.detail.noLogs")}</p>
-          )}
-        </CardContent>
+        {timelineOpen && (
+          <CardContent>
+            {logs.length > 0 ? (
+              <div className="space-y-3">
+                {mergeLogs(logs).map((entry) => (
+                  <InteractionEntry key={entry.id} entry={entry} />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">{t("tasks.detail.noLogs")}</p>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       {/* Metadata */}
@@ -336,12 +348,27 @@ export function TaskDetailPage(): React.ReactElement {
   );
 }
 
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svg"]);
+
+function isImageFile(filePath: string): boolean {
+  const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+  return IMAGE_EXTENSIONS.has(ext);
+}
+
 function ArtifactFileRow({ taskId, file }: { taskId: string; file: ArtifactFileEntry }): React.ReactElement {
   const { t } = useTranslation();
   const [preview, setPreview] = useState<string | null>(null);
+  const [imageOpen, setImageOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const isImage = isImageFile(file.path);
+  const canPreview = file.isText || isImage;
+
   const handlePreview = async (): Promise<void> => {
+    if (isImage) {
+      setImageOpen((prev) => !prev);
+      return;
+    }
     if (preview !== null) {
       setPreview(null);
       return;
@@ -349,7 +376,7 @@ function ArtifactFileRow({ taskId, file }: { taskId: string; file: ArtifactFileE
     setLoading(true);
     try {
       const content = await api.artifacts.getFileContent(taskId, file.path);
-      setPreview(content.slice(0, 10000));
+      setPreview(content);
     } catch {
       setPreview("Failed to load preview");
     } finally {
@@ -371,7 +398,7 @@ function ArtifactFileRow({ taskId, file }: { taskId: string; file: ArtifactFileE
         <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         <span className="flex-1 text-sm font-mono truncate">{file.path}</span>
         <span className="text-xs text-muted-foreground shrink-0">{sizeStr}</span>
-        {file.isText && (
+        {canPreview && (
           <Button variant="ghost" size="sm" className="h-7 px-2" onClick={handlePreview} disabled={loading}>
             <Eye className="h-3.5 w-3.5 mr-1" />
             {t("tasks.detail.preview")}
@@ -384,13 +411,24 @@ function ArtifactFileRow({ taskId, file }: { taskId: string; file: ArtifactFileE
           </Button>
         </a>
       </div>
-      {preview !== null && (
+      {/* Image preview */}
+      {isImage && imageOpen && (
+        <div className="mt-2 rounded bg-muted p-3 flex justify-center">
+          <img
+            src={api.artifacts.downloadFileUrl(taskId, file.path)}
+            alt={file.path}
+            className="max-w-full max-h-[600px] rounded object-contain"
+          />
+        </div>
+      )}
+      {/* Text preview */}
+      {!isImage && preview !== null && (
         isMarkdown ? (
           <div className="mt-2 rounded bg-muted p-3 prose prose-sm dark:prose-invert max-w-none">
             <Markdown remarkPlugins={[remarkGfm]}>{preview}</Markdown>
           </div>
         ) : (
-          <pre className="mt-2 max-h-80 overflow-auto rounded bg-muted p-3 text-xs font-mono whitespace-pre-wrap">
+          <pre className="mt-2 max-h-[600px] overflow-auto rounded bg-muted p-3 text-xs font-mono whitespace-pre-wrap">
             {preview}
           </pre>
         )
