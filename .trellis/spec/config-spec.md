@@ -250,11 +250,17 @@ interface AgentConfig {
   // Agent 必须支持 ACP 协议 (JSON-RPC 2.0 over stdin/stdout ndjson)
   // 参考 ACP 兼容 Agent 列表: https://agentclientprotocol.com/get-started/agents
   //
-  // 示例（原生 ACP，需特定子命令/标志）:
-  //   "gemini" + args: ["--experimental-acp"]  — Gemini CLI
-  //   "goose"  + args: ["acp"]                 — Goose
-  //   "opencode" + args: ["acp"]               — OpenCode
-  //   "kiro"                                   — Kiro CLI
+  // 示例（原生 ACP，需特定子命令/标志才能进入 ACP stdio 模式）:
+  //   "gemini"    + args: ["--experimental-acp"]  — Gemini CLI
+  //   "goose"     + args: ["acp"]                 — Goose
+  //   "opencode"  + args: ["acp"]                 — OpenCode
+  //   "kiro"      + args: ["acp"]                 — Kiro CLI
+  //   "kimi"      + args: ["acp"]                 — Kimi CLI
+  //   "cline"     + args: ["--acp"]               — Cline
+  //   "auggie"    + args: ["--acp"]               — Augment Code
+  //   "qwen"      + args: ["--acp"]               — Qwen Code
+  //   "openhands" + args: ["acp"]                 — OpenHands
+  //   "vibe-acp"                                  — Mistral Vibe
   //
   // 示例（通过适配器）:
   //   "claude-agent-acp"  — Claude Agent (npm: @zed-industries/claude-agent-acp)

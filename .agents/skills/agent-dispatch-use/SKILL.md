@@ -481,13 +481,13 @@ Client Node 通过 ACP 向 Worker 发送任务时，使用 **TaskWorkflowRunner*
 | **Gemini CLI** | 原生 | `gemini` | `["--experimental-acp"]` | `npm i -g @google/gemini-cli` |
 | **Goose** | 原生 | `goose` | `["acp"]` | [block.github.io/goose](https://block.github.io/goose/docs/guides/acp-clients) |
 | **OpenCode** | 原生 | `opencode` | `["acp"]` | [open-code.ai](https://open-code.ai/docs/en/acp) |
-| **Kiro CLI** | 原生 | `kiro` | — | [kiro.dev/cli](https://kiro.dev/cli/) |
-| **Kimi CLI** | 原生 | `kimi` | — | [github.com/MoonshotAI/kimi-cli](https://github.com/MoonshotAI/kimi-cli) |
-| **Augment Code** | 原生 | `augment` | — | [docs.augmentcode.com/cli/acp](https://docs.augmentcode.com/cli/acp) |
-| **Cline** | 原生 | `cline` | — | [cline.bot](https://cline.bot/) |
-| **Qwen Code** | 原生 | `qwen-code` | — | [github.com/QwenLM/qwen-code](https://github.com/QwenLM/qwen-code) |
-| **Mistral Vibe** | 原生 | `mistral-vibe` | — | [github.com/mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe) |
-| **OpenHands** | 原生 | — | — | [docs.openhands.dev](https://docs.openhands.dev/openhands/usage/run-openhands/acp) |
+| **Kiro CLI** | 原生 | `kiro` | `["acp"]` | [kiro.dev/cli](https://kiro.dev/cli/) |
+| **Kimi CLI** | 原生 | `kimi` | `["acp"]` | [github.com/MoonshotAI/kimi-cli](https://github.com/MoonshotAI/kimi-cli) |
+| **Augment Code** | 原生 | `auggie` | `["--acp"]` | [docs.augmentcode.com/cli/acp](https://docs.augmentcode.com/cli/acp/agent) |
+| **Cline** | 原生 | `cline` | `["--acp"]` | [docs.cline.bot](https://docs.cline.bot/cline-cli/acp-editor-integrations) |
+| **Qwen Code** | 原生 | `qwen` | `["--acp"]` | `npm i -g @qwen-code/qwen-code` |
+| **Mistral Vibe** | 原生 | `vibe-acp` | — | [github.com/mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe/blob/main/docs/acp-setup.md) |
+| **OpenHands** | 原生 | `openhands` | `["acp"]` | [docs.openhands.dev](https://docs.openhands.dev/openhands/usage/run-openhands/acp) |
 | **GitHub Copilot** | 公测 | — | — | [github.com/features/copilot](https://github.com/features/copilot) |
 | **Pi** | 适配器 | `pi-acp` | — | [github.com/svkozak/pi-acp](https://github.com/svkozak/pi-acp) |
 | 自定义 Agent | 需自行实现 | `node ./agent.mjs` | — | 使用 ACP SDK（TypeScript/Python/Rust/Kotlin） |
