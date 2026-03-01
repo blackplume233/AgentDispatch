@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import multipart from '@fastify/multipart';
 import type { ServerConfig } from '@agentdispatch/shared';
 import { AppError } from '@agentdispatch/shared';
@@ -151,6 +152,12 @@ export async function createApp(
       },
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // CORS (must be registered before auth hook and routes)
+  await app.register(cors, {
+    origin: true,
+    credentials: true,
   });
 
   // Auth middleware (must be registered before routes)

@@ -9,6 +9,7 @@ interface AuthState {
   isLoading: boolean;
   authEnabled: boolean | null;
   username: string | null;
+  error: string | null;
 }
 
 interface AuthContextValue extends AuthState {
@@ -25,6 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading: true,
     authEnabled: null,
     username: null,
+    error: null,
   });
 
   useEffect(() => {
@@ -37,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (!health.authEnabled) {
           if (!cancelled) {
-            setState((s) => ({ ...s, isLoading: false, authEnabled: false, isAuthenticated: true }));
+            setState((s) => ({ ...s, isLoading: false, authEnabled: false, isAuthenticated: true, error: null }));
           }
           return;
         }
@@ -45,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const savedToken = localStorage.getItem(TOKEN_KEY);
         if (!savedToken) {
           if (!cancelled) {
-            setState((s) => ({ ...s, isLoading: false, authEnabled: true, isAuthenticated: false, token: null }));
+            setState((s) => ({ ...s, isLoading: false, authEnabled: true, isAuthenticated: false, token: null, error: null }));
           }
           return;
         }
@@ -63,17 +65,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               isLoading: false,
               authEnabled: true,
               username: me.username ?? null,
+              error: null,
             });
           }
         } else {
           localStorage.removeItem(TOKEN_KEY);
           if (!cancelled) {
-            setState({ token: null, isAuthenticated: false, isLoading: false, authEnabled: true, username: null });
+            setState({ token: null, isAuthenticated: false, isLoading: false, authEnabled: true, username: null, error: null });
           }
         }
       } catch {
         if (!cancelled) {
-          setState((s) => ({ ...s, isLoading: false }));
+          setState((s) => ({
+            ...s,
+            isLoading: false,
+            isAuthenticated: false,
+            error: 'Unable to connect to server',
+          }));
         }
       }
     }
@@ -104,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading: false,
       authEnabled: true,
       username,
+      error: null,
     });
   }, []);
 
@@ -116,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }).catch(() => {});
     }
     localStorage.removeItem(TOKEN_KEY);
-    setState({ token: null, isAuthenticated: false, isLoading: false, authEnabled: true, username: null });
+    setState({ token: null, isAuthenticated: false, isLoading: false, authEnabled: true, username: null, error: null });
   }, []);
 
   const value = useMemo<AuthContextValue>(

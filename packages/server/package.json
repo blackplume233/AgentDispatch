@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@agentdispatch/shared": "workspace:*",
+    "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^9.0.0",
     "adm-zip": "^0.5.16",
     "fastify": "^5.0.0",

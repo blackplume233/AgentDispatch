@@ -19,11 +19,30 @@ const queryClient = new QueryClient({
   },
 });
 
+function ConnectionError({ message }: { message: string }): React.ReactElement {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-4 text-muted-foreground">
+      <p className="text-lg font-medium text-destructive">{message}</p>
+      <button
+        type="button"
+        className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+        onClick={() => window.location.reload()}
+      >
+        Retry
+      </button>
+    </div>
+  );
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }): React.ReactElement {
-  const { isAuthenticated, isLoading, authEnabled } = useAuth();
+  const { isAuthenticated, isLoading, authEnabled, error } = useAuth();
 
   if (isLoading) {
     return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading...</div>;
+  }
+
+  if (error) {
+    return <ConnectionError message={error} />;
   }
 
   if (authEnabled && !isAuthenticated) {
@@ -34,10 +53,14 @@ function ProtectedRoute({ children }: { children: React.ReactNode }): React.Reac
 }
 
 function AppRoutes(): React.ReactElement {
-  const { isAuthenticated, authEnabled, isLoading } = useAuth();
+  const { isAuthenticated, authEnabled, isLoading, error } = useAuth();
 
   if (isLoading) {
     return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Loading...</div>;
+  }
+
+  if (error) {
+    return <ConnectionError message={error} />;
   }
 
   return (
