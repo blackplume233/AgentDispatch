@@ -997,7 +997,7 @@ curl.exe -X POST -H "Content-Type: application/json" -d "{\"title\":\"test\"}" .
 }
 ```
 
-**完整 Client Node 启动参考**：`.trellis/qa-alpha/start-node.ts`
+**完整 Client Node 启动参考**：`.qa/alpha/start-node.ts`
 
 **注意**：
 

@@ -38,12 +38,12 @@
    - 随机化参数
 
 4. **增量写入日志（边执行边记录）**
-   - 每步执行完毕后立即将以下内容追加到 `.trellis/tasks/<task>/qa-log-roundN.md`：
+   - 每步执行完毕后立即将以下内容追加到 `.qa/<session>/qa-log-roundN.md`：
      - **原始输入**：完整命令/HTTP 请求及所有参数
      - **原始输出**：response body 全文、status_code（不省略不截断）
      - **判断**：PASS/WARN/FAIL + 判断依据（紧跟输出之后）
    - 严禁积攒到执行结束后再回忆填写，日志是给人类审查的第一手证据链
-   - 执行结束后从日志汇总生成 `.trellis/tasks/<task>/qa-report-roundN.md`
+   - 执行结束后从日志汇总生成 `.qa/<session>/qa-report-roundN.md`
 
 ### Phase 2: Issue 创建
 

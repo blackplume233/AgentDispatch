@@ -50,7 +50,7 @@ alwaysApply: false
 
 由 QA SubAgent 执行。**核心要求：每执行一步就立即将该步的完整记录追加到日志文件，不得等全部执行完再回忆填写。**
 
-日志文件：`.trellis/tasks/<current-task>/qa-log-roundN.md`
+日志文件：`.qa/<session>/qa-log-roundN.md`（`<session>` 为本次循环的标识）
 
 每步的写入流程：
 1. **执行前** → 将原始输入（完整命令/HTTP 请求及参数）追加到日志文件
@@ -99,8 +99,8 @@ alwaysApply: false
 每轮测试产出两个文件，保存在任务目录下：
 
 ```
-.trellis/tasks/<current-task>/qa-log-roundN.md      ← 增量日志（执行过程中逐条追加）
-.trellis/tasks/<current-task>/qa-report-roundN.md    ← 最终报告（执行结束后从日志汇总）
+.qa/<session>/qa-log-roundN.md      ← 增量日志（执行过程中逐条追加）
+.qa/<session>/qa-report-roundN.md    ← 最终报告（执行结束后从日志汇总）
 ```
 
 **qa-log 是证据链**：包含每步的原始输入、原始输出、判断，在执行过程中实时写入。
@@ -146,4 +146,4 @@ alwaysApply: false
 1. **完整回归** — 每轮回归必须重新执行全部测试，不可只跑失败项
 2. **收敛保障** — 如果连续 3 轮通过率无提升，主动分析瓶颈并报告
 3. **环境隔离** — 所有测试在临时目录中执行，不影响用户环境
-4. **每步即时写入日志** — 每执行一步都必须在执行完毕后立即将原始输入、原始输出、判断追加到 `qa-log-roundN.md`。严禁积攒到执行结束后再回忆填写。日志是给人类审查用的第一手证据链，事后重建的日志不可信。
+4. **每步即时写入日志** — 每执行一步都必须在执行完毕后立即将原始输入、原始输出、判断追加到 `.qa/<session>/qa-log-roundN.md`。严禁积攒到执行结束后再回忆填写。日志是给人类审查用的第一手证据链，事后重建的日志不可信。

@@ -61,7 +61,7 @@ git rev-parse HEAD
 2. **创建任务目录**
 
 ```
-.trellis/tasks/qa-continuous-monitor/
+.qa/continuous-monitor/
 ```
 
 3. **初始化汇总文件**
@@ -181,17 +181,17 @@ DISPATCH_IPC_PATH="$TEST_DIR/dispatch.sock" \
 
 ### 增量日志（每轮）
 
-路径：`.trellis/tasks/qa-continuous-monitor/qa-log-roundN.md`
+路径：`.qa/continuous-monitor/qa-log-roundN.md`
 
 格式参照 QA Engineer 技能的日志规范。
 
 ### 轮次报告（每轮）
 
-路径：`.trellis/tasks/qa-continuous-monitor/qa-report-roundN.md`
+路径：`.qa/continuous-monitor/qa-report-roundN.md`
 
 ### 监测汇总（持续更新）
 
-路径：`.trellis/tasks/qa-continuous-monitor/monitor-summary.md`
+路径：`.qa/continuous-monitor/monitor-summary.md`
 
 ```markdown
 # QA 持续监测汇总

@@ -44,3 +44,12 @@ coverage/
 
 # GitNexus index (regeneratable)
 .gitnexus/
+
+# QA artifacts (all QA output goes to .qa/)
+.qa/
+.trellis/qa-*/
+.trellis/tasks/qa-*/
+
+# Dispatch runtime data
+.dispatch/
+data/

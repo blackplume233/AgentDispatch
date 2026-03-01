@@ -308,7 +308,7 @@ NODE_PID=$!
    - **判断**：PASS / WARN / FAIL + 判断依据（观察到了什么、为什么如此判定）
 4. 对 WARN/FAIL 额外记录：期望行为 vs 实际行为的差异分析
 
-日志文件路径：`.trellis/tasks/<current-task>/qa-log-roundN.md`
+日志文件路径：`.qa/<session>/qa-log-roundN.md`（`<session>` 为本次测试的标识，如日期+场景名）
 
 **关键原则**：
 - **即时写入** — 每步执行完立即 append 到日志文件，不积攒
@@ -395,7 +395,7 @@ ls .agents/skills/qa-engineer/scenarios/*.json 2>/dev/null
 
 日志文件是 QA 的**第一手证据链**，在执行过程中逐条追加，不在结束后回填。
 
-文件路径：`.trellis/tasks/<current-task>/qa-log-roundN.md`
+文件路径：`.qa/<session>/qa-log-roundN.md`
 
 每条日志记录的格式：
 
@@ -433,7 +433,7 @@ exit_code: <code>  (或 http_status: <code>)
 
 ### 最终报告文件（执行结束后生成）
 
-文件路径：`.trellis/tasks/<current-task>/qa-report-roundN.md`
+文件路径：`.qa/<session>/qa-report-roundN.md`
 
 ```markdown
 ## QA 集成测试报告

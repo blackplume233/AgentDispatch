@@ -400,7 +400,7 @@ Server ────[check: 15s]──────→ 标记超时 Client 为 off
 > **⚠️ claude-code-acp 命名变更** [NEW 2026-03-01]
 >
 > npm 包 `@zed-industries/claude-code-acp` 的二进制名为 `claude-code-acp`。
-> 早期代码（如 `.trellis/qa-alpha/start-node.ts`）使用的旧名 `claude-agent-acp` 已过时。
+> 早期代码（如 `.qa/alpha/start-node.ts`）使用的旧名 `claude-agent-acp` 已过时。
 > 配置 AgentConfig 时 `command` 字段应使用 `claude-code-acp`。
 
 > **⚠️ Stub/Placeholder Agent 的局限** [NEW 2026-03-01]

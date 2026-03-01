@@ -29,7 +29,7 @@
 ### 目录结构
 
 ```
-.trellis/qa-alpha/
+.qa/alpha/
 ├── env-state.json        # 环境状态（Server PID, port, build hash 等）
 ├── data/                 # DISPATCH_DATA_DIR（持久化，不删除）
 │   ├── tasks/
@@ -49,7 +49,7 @@
   "status": "running | stopped | unknown",
   "serverPid": 12345,
   "port": 23456,
-  "dataPath": "<absolute path to .trellis/qa-alpha/data>",
+  "dataPath": "<absolute path to .qa/alpha/data>",
   "buildHash": "<最近一次 build 的 git commit hash>",
   "buildTimestamp": "<ISO datetime>",
   "startedAt": "<ISO datetime>",
@@ -69,7 +69,7 @@
 #### Step 0.1: 读取环境状态
 
 ```bash
-cat .trellis/qa-alpha/env-state.json
+cat .qa/alpha/env-state.json
 ```
 
 - 若文件不存在 → 进入「Phase 1: 首次初始化」
@@ -103,8 +103,8 @@ git rev-parse HEAD
 #### Step 1.1: 创建目录
 
 ```bash
-mkdir -p .trellis/qa-alpha/data
-mkdir -p .trellis/qa-alpha/logs
+mkdir -p .qa/alpha/data
+mkdir -p .qa/alpha/logs
 ```
 
 #### Step 1.2: 构建项目
@@ -122,7 +122,7 @@ PORT=$(( RANDOM % 10000 + 20000 ))
 #### Step 1.4: 启动 Server（后台常驻）
 
 ```bash
-DISPATCH_DATA_DIR="$(pwd)/.trellis/qa-alpha/data" DISPATCH_PORT=$PORT \
+DISPATCH_DATA_DIR="$(pwd)/.qa/alpha/data" DISPATCH_PORT=$PORT \
   node packages/server/dist/index.js &
 SERVER_PID=$!
 ```
@@ -152,8 +152,8 @@ curl -s -X POST http://localhost:<port>/api/v1/tasks \
 #### 日志与报告
 
 - `roundCounter++`，更新 env-state.json
-- 增量日志：`.trellis/qa-alpha/logs/qa-log-roundN.md`
-- 轮次报告：`.trellis/qa-alpha/logs/qa-report-roundN.md`
+- 增量日志：`.qa/alpha/logs/qa-log-roundN.md`
+- 轮次报告：`.qa/alpha/logs/qa-report-roundN.md`
 
 日志规范完全遵循 qa-engineer SKILL.md 中的格式。
 
@@ -205,7 +205,7 @@ curl -s -X POST http://localhost:<port>/api/v1/tasks \
 
 | 维度 | `/qa` (标准) | `/qa-alpha` (持久) |
 |------|------------|------------------|
-| 环境 | 每次 mktemp，用后即删 | `.trellis/qa-alpha/`，长期保留 |
+| 环境 | 每次 mktemp，用后即删 | `.qa/alpha/`，长期保留 |
 | Server | 每次启停 | 常驻，跨会话复用 |
 | 数据 | 每次干净 | 跨会话累积（可手动清理） |
 | 适用场景 | 回归测试、CI 验证 | 开发调试、交互式探索、持久化测试 |
@@ -221,4 +221,4 @@ curl -s -X POST http://localhost:<port>/api/v1/tasks \
 3. **进程管理** — env-state.json 记录 Server PID，每次恢复时验证。PID 失效时自动重启。
 4. **日志累积** — 日志文件按 round 编号递增累积，不覆盖。round 编号跨会话持续递增。
 5. **Issue 追踪** — 同标准 QA：FAIL 创建 bug Issue，WARN 酌情创建 enhancement Issue。创建前先搜索避免重复。
-6. **手动清理** — 若需完全重置环境，手动 `rm -rf .trellis/qa-alpha/` 即可。下次执行自动重建。
+6. **手动清理** — 若需完全重置环境，手动 `rm -rf .qa/alpha/` 即可。下次执行自动重建。
