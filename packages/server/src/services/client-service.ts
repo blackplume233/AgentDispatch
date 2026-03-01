@@ -3,10 +3,12 @@ import type { Client, AgentInfo, RegisterClientDTO, HeartbeatDTO } from '@agentd
 import { ErrorCode, NotFoundError, ConflictError, ValidationError } from '@agentdispatch/shared';
 import type { OperationQueue } from '../queue/operation-queue.js';
 import type { ClientStore } from '../store/client-store.js';
+import type { TaskService } from './task-service.js';
 import type { Logger } from '../utils/logger.js';
 
 export class ClientService {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private taskService: TaskService | null = null;
 
   constructor(
     private store: ClientStore,
@@ -15,6 +17,10 @@ export class ClientService {
     private heartbeatTimeout: number = 60000,
     private checkInterval: number = 15000,
   ) {}
+
+  setTaskService(taskService: TaskService): void {
+    this.taskService = taskService;
+  }
 
   startHeartbeatCheck(): void {
     this.heartbeatTimer = setInterval(() => {
@@ -155,9 +161,13 @@ export class ClientService {
   private async checkHeartbeats(): Promise<void> {
     const clients = await this.store.list();
     const now = Date.now();
+    const offlineClientIds: string[] = [];
 
     for (const client of clients) {
-      if (client.status === 'offline') continue;
+      if (client.status === 'offline') {
+        offlineClientIds.push(client.id);
+        continue;
+      }
       const lastBeat = new Date(client.lastHeartbeat).getTime();
       if (now - lastBeat > this.heartbeatTimeout) {
         const updated: Client = { ...client, status: 'offline' };
@@ -171,6 +181,45 @@ export class ClientService {
           category: 'client',
           event: 'client.timeout',
           context: { clientId: client.id, name: client.name },
+        });
+        offlineClientIds.push(client.id);
+      }
+    }
+
+    if (offlineClientIds.length > 0) {
+      await this.releaseTasksForOfflineClients(offlineClientIds);
+    }
+  }
+
+  private async releaseTasksForOfflineClients(offlineClientIds: string[]): Promise<void> {
+    if (!this.taskService) return;
+
+    const idSet = new Set(offlineClientIds);
+    const tasks = await this.taskService.listTasks();
+    const orphanedTasks = tasks.filter(
+      (t) =>
+        (t.status === 'claimed' || t.status === 'in_progress') &&
+        t.claimedBy?.clientId !== undefined &&
+        idSet.has(t.claimedBy.clientId),
+    );
+
+    for (const task of orphanedTasks) {
+      const clientId = task.claimedBy?.clientId ?? '';
+      try {
+        await this.taskService.releaseTask(task.id, {
+          clientId,
+          reason: 'Worker offline (heartbeat timeout)',
+        });
+        this.logger.info('Released orphaned task', {
+          category: 'task',
+          event: 'task.released.auto',
+          context: { taskId: task.id, clientId },
+        });
+      } catch {
+        this.logger.warn('Failed to release orphaned task', {
+          category: 'task',
+          event: 'task.release.failed',
+          context: { taskId: task.id, clientId },
         });
       }
     }

@@ -60,7 +60,7 @@ export interface Task {
 export const VALID_TASK_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   pending: ['claimed', 'cancelled'],
   claimed: ['in_progress', 'pending', 'cancelled'],
-  in_progress: ['completed', 'failed', 'cancelled'],
+  in_progress: ['completed', 'failed', 'cancelled', 'pending'],
   completed: [],
   failed: ['pending'],
   cancelled: [],

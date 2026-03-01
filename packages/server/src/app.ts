@@ -85,6 +85,7 @@ export async function createApp(
     config.heartbeat.timeout,
     config.heartbeat.checkInterval,
   );
+  clientService.setTaskService(taskService);
 
   // HTTP request/response logging middleware
   if (config.logging.httpLog) {
