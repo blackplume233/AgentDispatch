@@ -1,451 +1,189 @@
 # Cross-Layer Thinking Guide
 
-> **Purpose**: Think through data flow across Actant's layers before implementing.
+> **Purpose**: Before implementing, map how data crosses AgentDispatch layers and define each boundary contract.
 
 ---
 
 ## The Problem
 
-**Most bugs happen at layer boundaries**, not within layers.
+Most production bugs happen **between layers**, not inside one function.
 
-In Actant, there are more boundaries than a typical web app:
+In AgentDispatch, the core cross-layer paths are:
 
 ```
-User ↔ CLI ↔ Core ↔ Agent Process ↔ Model Provider
-                ↕           ↕
-              API         ACP/MCP
-                ↕           ↕
-           Web UI    External Clients
-                    (Unreal/Unity/IM)
+Dashboard/API Client
+    ↕ HTTP
+Server (REST + queue + file persistence)
+    ↕ HTTP
+ClientNode Core
+    ↕ ACP (stdio JSON-RPC)
+Worker / Manager Agent process
+    ↕ CLI shell calls
+ClientCLI
+    ↕ IPC (pipe/socket)
+ClientNode Core
 ```
 
-Every arrow is a potential source of bugs.
+Every arrow is a contract surface: payload format, state transition, auth rule, timeout, and error mapping.
 
 ---
 
-## Actant Layer Map
+## AgentDispatch Layer Map
 
-| Layer | Responsibility | Communication |
-|-------|---------------|---------------|
-| **CLI** | User interaction, command parsing, output formatting | Calls Core directly (in-process) |
-| **API** | HTTP interface for external access | Calls Core directly (in-process) |
-| **Core** | Business logic, template resolution, lifecycle management | Manages Agent Processes |
-| **ACP Server** | Protocol bridge for external Agent Clients | Translates ACP ↔ Core operations |
-| **MCP Server** | Protocol bridge for agent-to-platform access | Translates MCP ↔ Core operations |
-| **Agent Process** | Running agent instance | Communicates via ACP/MCP/stdin/stdout |
-| **Config Files** | Persistent configuration source of truth | Read by Core at resolution time |
-| **State Store** | Runtime state persistence | Read/written by Core Manager |
+| Layer                    | Responsibility                           | Communication                       |
+| ------------------------ | ---------------------------------------- | ----------------------------------- |
+| **Dashboard**            | 任务可视化、操作入口                     | HTTP(S) to Server                   |
+| **Server**               | 任务状态机、持久化、鉴权、SSE            | REST/SSE + file I/O                 |
+| **ClientNode Core**      | 轮询/认领、Worker 生命周期、ACP/IPC 协调 | HTTP + ACP + IPC                    |
+| **ClientCLI**            | 本地命令入口（用户/Worker）              | IPC to ClientNode                   |
+| **Worker/Manager Agent** | 任务执行/分发建议                        | ACP + shell (`dispatch worker ...`) |
+| **Shared Types**         | 跨模块契约类型与错误码                   | TS type contracts                   |
 
 ---
 
 ## Before Implementing Cross-Layer Features
 
-### Step 1: Map the Data Flow
+### Step 1: Map the End-to-End Flow
 
-Draw out how data moves through Actant's specific layers:
+Write the full path before coding.
 
 ```
-Example: "User creates an agent from template"
+Example: Worker reports progress
 
-User Input (CLI)
-  → Command Parser (CLI)
-    → CreateAgentCommand (Core)
-      → Template Resolution (Core: resolve skill/mcp/workflow references)
-        → Config File Read (Config Files)
-      → Workspace Setup (Core: Initializer)
-        → File System Write
-      → Process Launch (Core: Manager)
-        → Agent Process spawned
-      → State Persist (State Store)
-    → Output Formatter (CLI)
-  → User sees result
+Worker process
+  → shell: dispatch worker progress <taskId> --percent 0 --message "Thinking..."
+  → ClientCLI parses args
+  → IPC message (command=worker.progress, payload)
+  → ClientNode validates token/role
+  → HTTP POST /tasks/:id/progress
+  → Server validates transition claimed -> in_progress
+  → Dashboard refreshes task state (polling/SSE)
 ```
 
-For each arrow, ask:
-- What format is the data in?
-- What could go wrong?
-- Who validates the data?
+For each step, answer:
 
-### Step 2: Identify Actant-Specific Boundaries
+- Which payload schema is used?
+- Which component validates it?
+- What is the timeout/retry policy?
+- Which error code is returned on failure?
 
-| Boundary | Common Issues |
-|----------|---------------|
-| CLI ↔ Core | Argument types mismatch, missing validation |
-| API ↔ Core | HTTP serialization, enum string values vs typed enums |
-| Core ↔ Config Files | File not found, schema version mismatch, parse errors |
-| Core ↔ State Store | Stale state, concurrent access, migration needed |
-| Core ↔ Agent Process | Process crash, stdout parsing, signal handling |
-| ACP Server ↔ Core | Protocol version mismatch, message format differences |
-| MCP Server ↔ Core | Tool schema mismatch, permission errors |
-| Agent Process ↔ Provider | Network timeout, rate limiting, model errors |
+### Step 2: Identify Boundary Risks
 
-### Step 3: Define Contracts
+| Boundary                     | Common Issues                                                    |
+| ---------------------------- | ---------------------------------------------------------------- |
+| Dashboard ↔ Server           | DTO drift, missing auth header, stale polling behavior           |
+| Server ↔ persistence         | non-atomic write, partial file, archive index drift              |
+| ClientNode ↔ Server          | task status race, heartbeat timeout, retry storm                 |
+| ClientCLI ↔ ClientNode (IPC) | command mismatch, payload shape mismatch, token missing          |
+| ClientNode ↔ Agent (ACP)     | initialize hang, stopReason handling, stream chunk fragmentation |
+| Worker ↔ ClientCLI           | wrong task id, missing artifact paths, progress semantics misuse |
 
-For each boundary:
-- What is the exact input format?
-- What is the exact output format?
-- What errors can occur?
-- Who is responsible for format conversion?
+### Step 3: Define the Contract Explicitly
+
+For each boundary, define:
+
+- Input and output schema
+- Allowed state transitions
+- Auth/permission checks
+- Error code mapping
+- Idempotency and retry behavior
+
+Update `api-contracts.md` and `config-spec.md` in the same change set.
 
 ---
 
-## Common Cross-Layer Mistakes in Actant
+## Common AgentDispatch Cross-Layer Mistakes
 
-### Mistake 1: Config Reference Resolution Timing
+### Mistake 1: Task state jump
 
-**Bad**: Resolving skill references at template load time (stale references)
+**Symptom**: `completeTask` fails with `TASK_INVALID_TRANSITION`.
 
-**Good**: Resolve references at agent creation time (fresh resolution)
+**Cause**: calling complete before the first progress update moves task into `in_progress`.
 
-**Why**: Skills and other Domain Context components may be updated after the template was loaded. Always resolve at the latest possible moment.
+**Fix**: ensure progress is reported first (progress value is trigger field, message is real status text).
 
-### Mistake 2: Agent Process State Assumptions
+### Mistake 2: Streaming chunk fragmentation
 
-**Bad**: Assuming agent process is running because state store says "Running"
+**Symptom**: Dashboard shows many tiny unreadable logs.
 
-**Good**: Verify process is alive (PID check) before operations
+**Cause**: recording every ACP chunk as an independent log row.
 
-**Why**: Agent processes can crash without notifying the manager. State store may be stale.
+**Fix**: buffer `text/thinking/prompt` chunks and flush on structural boundaries (`tool_call`, `plan`, turn end).
 
-### Mistake 3: CLI ↔ API Output Mismatch
+### Mistake 3: Artifact cross-task contamination
 
-**Bad**: CLI command returns different data structure than equivalent API endpoint
+**Symptom**: task B artifact zip includes files from task A.
 
-**Good**: Both CLI and API call the same Core function and format the same result
+**Cause**: collecting artifacts from whole `workDir`.
 
-**Why**: Scripts and CI tools may switch between CLI and API. Inconsistent output breaks automation.
+**Fix**: keep ACP `newSession.cwd = agentConfig.workDir` and collect only from
+`{workDir}/.dispatch/output/{taskId-prefix}/`.
 
-### Mistake 4: ACP/MCP Schema Drift
+### Mistake 4: Fake QA flow instead of real components
 
-**Bad**: Core changes data format without updating ACP/MCP protocol handlers
+**Symptom**: tests look green but real dispatch flow breaks.
 
-**Good**: Protocol handlers use shared type definitions from `packages/shared/types/`
+**Cause**: using curl/scripts to mimic heartbeats, progress, or artifact upload.
 
-**Why**: External clients depend on stable protocol schemas. Breaking changes cause silent failures.
+**Fix**: run real Server + real ClientNode + real ACP-capable Worker in QA.
 
-### Mistake 5: Leaky Abstraction Across Modules
+### Mistake 5: IPC auth documented but schema incomplete
 
-**Bad**: CLI command directly reads config files, bypassing Core
+**Symptom**: CLI sends token but IPC layer drops it.
 
-**Good**: CLI → Core (Template Module) → Config Files
+**Cause**: contract text and `IPCMessage` schema diverge.
 
-**Why**: Core owns the business rules for config resolution (defaults, overrides, validation). Bypassing it creates inconsistencies.
-
-### Mistake 6: Putting Business Logic in ACP Transport Layer
-
-**Bad**: Implementing `ac://` URI resolution, memory lookup, or asset management directly in `AcpConnection.localReadTextFile`
-
-**Good**: ACP 层只做前缀识别和分发，实际解析逻辑在 Core 层
-
-**Why**: ACP 是协议传输 + 回调拦截层，加入业务语义会混淆关注点，也会使协议层难以替换。
+**Fix**: keep schema and command table synchronized in `api-contracts.md`.
 
 ---
 
-## ACP Client Callback 层的职责边界
-
-### 核心定位
-
-ACP 层（`packages/acp/`）是一个**瘦传输层**，职责仅限于：
-
-| 职责 | 实现 |
-|------|------|
-| 协议传输 (stdio/socket) | `AcpConnection` |
-| 会话生命周期 | `newSession(cwd)` / `closeSession` |
-| 客户端回调分发 | `ClientCallbackRouter` |
-| 权限预过滤 | `PermissionPolicyEnforcer` |
-| 网关模式 | `AcpGateway` (IDE ↔ Agent) |
-
-**不属于 ACP 层的职责**：资源解析、记忆查询、资产管理、组件索引。
-
-### ClientCallbackRouter 是 fs 操作的唯一瓶颈点
-
-所有 Agent 发起的 `readTextFile` / `writeTextFile` 请求都经过 `ClientCallbackRouter`：
-
-```
-Agent Process
-    │ ACP Protocol: client/readTextFile { path }
-    ▼
-AcpConnection.buildClient()
-    │ callbackHandler?
-    ▼
-ClientCallbackRouter          ← 唯一瓶颈点（lease + local 全覆盖）
-    ├── ac:// 前缀? → resolver.readVirtual()   [注入自 Core]
-    ├── lease active? → upstream (IDE)
-    └── no lease → local.readTextFile() → node:fs
-```
-
-### 扩展模式：前缀分发 + 依赖注入
-
-当需要拦截特殊路径（如 `ac://` 虚拟寻址），正确做法是在 `ClientCallbackRouter` 中加入前缀检查，实际处理委托给从 Core 层注入的 resolver：
-
-```typescript
-// 接口定义在 acp 或 shared 包
-interface AcUriResolver {
-  readVirtual(params: ReadTextFileRequest): Promise<ReadTextFileResponse>;
-  writeVirtual(params: WriteTextFileRequest): Promise<WriteTextFileResponse>;
-}
-
-// ClientCallbackRouter 持有可选引用
-private resolver: AcUriResolver | null = null;
-
-setResolver(resolver: AcUriResolver | null): void {
-  this.resolver = resolver;
-}
-
-// 在 readTextFile 路由决策之前拦截
-async readTextFile(params: ReadTextFileRequest) {
-  if (this.resolver && params.path.startsWith("ac://")) {
-    return this.resolver.readVirtual(params);
-  }
-  // 原有路由逻辑不变...
-}
-```
-
-**关键约束**：
-- **接口定义在 ACP 包，实现注入自 Core 包** — 保持依赖方向 Core → ACP
-- **未注入 resolver 时行为完全不变** — 向后兼容
-- **不要在 `localReadTextFile` 中拦截** — 那只覆盖无 lease 的本地模式，lease 模式下 `ac://` 会被透传给 IDE（IDE 不认识）
-
-> **参考**: Issue [#209](https://github.com/blackplume233/Actant/issues/209), Memory Layer 设计文档附录 A (`ac://` 统一寻址协议)
-
----
-
-## AgentDispatch 跨层常见陷阱 [NEW 2026-02-28]
-
-### 陷阱 1: 任务状态机跳跃
-
-**症状**: `completeTask` 调用返回 `TASK_INVALID_TRANSITION` 错误
-
-**原因**: Server 的任务状态机要求 `claimed → in_progress → completed` 的严格顺序。ClientNode 申领任务后状态是 `claimed`，必须先通过 `reportProgress()` 触发一次 `claimed → in_progress` 转换，然后才能 `completeTask()`。
-
-**涉及层**: ClientNode (node.ts handleTaskCompletion) → Server (task-service)
-
-**Fix**: 在 `handleTaskCompletion` 的开头调用 `reportProgress({ progress: 0, message: 'Collecting artifacts...' })`。
-
-### 陷阱 2: ACP 流式 chunk 直接入日志
-
-**症状**: Dashboard 日志页面显示数百条只有几个字符的日志条目，无法阅读
-
-**原因**: ACP 的 `agent_message_chunk` 和 `agent_thought_chunk` 是逐 token 推送的。如果每个 chunk 都直接 `record()` 为一条独立日志，就会产生碎片。
-
-**涉及层**: ClientNode (dispatch-acp-client.ts) → Server (日志存储) → Dashboard (日志展示)
-
-**Fix**: 使用流式缓冲区（textBuffer/thinkingBuffer）聚合 chunk，在结构化事件边界（tool_call / plan / flush / destroy）时才 flush 为完整消息。
-
-### 陷阱 3: Worker 产物跨任务污染 / Agent 丢失上下文
-
-**症状 A**: 第二个任务的产物 zip 里包含了第一个任务的文件
-**症状 B**: Agent 找不到自己的 skills、rules 或 MCP 配置
-
-**原因 A**: 如果 `collectArtifacts` 扫描整个 `workDir`，会把其他任务的残留文件和 Agent 自身文件一起打包。
-**原因 B**: 如果把 ACP session `cwd` 改成隔离子目录，Agent 就脱离了自己的工作环境（skills、`AGENTS.md`、`.cursor/rules/` 等都在原始 `workDir` 中）。
-
-**涉及层**: ClientNode (node.ts dispatchPendingTasks) → ACP (session cwd) → ClientNode (collectArtifacts)
-
-**Fix**: ACP session `cwd` 保持 Agent 原始 `workDir` 不变；为每个任务创建产物输出目录 `{workDir}/.dispatch/output/{taskId.slice(0,12)}/`；prompt 中指示 Agent 将输出写到该目录；`collectArtifacts` 只扫描该目录。
-
-### 陷阱 4: CJS 依赖在 ESM 构建中崩溃
-
-**症状**: `Error: Dynamic require of "fs" is not supported`
-
-**原因**: tsup 默认将所有依赖打包进 ESM bundle。CJS-only 的包（如 `adm-zip`）内部使用 `require()`，打包进 ESM 后无法运行。
-
-**涉及层**: Build (tsup.config.ts) → Runtime (node.ts)
-
-**Fix**: 在 `tsup.config.ts` 的 `external` 数组中列出 CJS-only 依赖。
-
----
-
-## Actant Cross-Layer Checklist
+## Cross-Layer Checklist
 
 ### Before Implementation
 
-- [ ] Mapped the complete data flow through all involved layers
-- [ ] Identified all layer boundaries the feature crosses
-- [ ] Defined data format at each boundary
-- [ ] Decided where validation happens (validate once at entry point)
-- [ ] Shared types defined in `packages/shared/types/`
+- [ ] End-to-end flow is written for this feature
+- [ ] Every crossed boundary has explicit input/output schema
+- [ ] Shared types/errors are updated in one place
+- [ ] Auth role impact (`admin/client/operator`) is reviewed
 
 ### During Implementation
 
-- [ ] CLI and API commands call the same Core function
-- [ ] Config references resolved at the right time (creation, not load)
-- [ ] Agent process state verified before operations
-- [ ] Error handling at each boundary (see [Error Handling](../backend/error-handling.md))
+- [ ] Status transitions follow documented state machine
+- [ ] Worker communication goes through CLI -> IPC -> ClientNode
+- [ ] ACP stopReason paths are handled (`end_turn`, `cancelled`, `refused`, limits)
+- [ ] Timeout/retry behavior is explicit (heartbeat, HTTP retry, reconnect)
 
 ### After Implementation
 
-- [ ] Tested with edge cases (null, empty, invalid, not found)
-- [ ] Verified error handling at each boundary
-- [ ] Checked data survives round-trip (CLI create → API read → CLI modify)
-- [ ] ACP/MCP protocol schemas updated if data format changed
-
----
-
-## When to Create Flow Documentation
-
-Create detailed flow docs when:
-- Feature spans 3+ layers
-- Data format is complex (nested Domain Context)
-- Feature involves agent-to-agent communication
-- Feature has caused bugs before
-- External protocol (ACP/MCP) is involved
-
-Store flow docs in the relevant task directory:
-```
-.trellis/tasks/{task-name}/flow.md
-```
+- [ ] Verify normal + failure paths across all touched layers
+- [ ] Verify logs are human-readable and correlated by task/client/session
+- [ ] Verify no contract drift against `api-contracts.md` and `config-spec.md`
+- [ ] Verify backend behavior against `.trellis/spec/backend/index.md`
 
 ---
 
 ## Layer Dependency Rules
 
 ```
-CLI ──→ Core ←── API
-           ↕
-    ┌──────┼──────┐
-    ↓      ↓      ↓
-   ACP    MCP   State Store
-   Server Server
-    ↓      ↓
-  External Agents/Clients
+Dashboard/CLI tools -> Server/ClientCLI -> ClientNode Core -> Agent Process
+                                       \-> Shared Types (contracts)
 ```
 
-**Rules**:
-1. CLI and API never depend on each other
-2. ACP and MCP servers never depend on each other
-3. All external-facing layers go through Core
-4. Shared types live in `packages/shared/`
-5. Config files are only read by Core (never by CLI, API, ACP, or MCP directly)
+Rules:
+
+1. Worker never calls Server API directly.
+2. Dashboard never bypasses Server to mutate runtime state.
+3. ClientCLI is transport only; business rules stay in ClientNode/Server.
+4. Shared contracts are source of truth for cross-module payloads.
+5. Spec updates are mandatory when contract or state behavior changes.
 
 ---
 
-## Phase 4 跨层流程: Plugin / Hook / Memory
+## When to Write a Dedicated Flow Doc
 
-### 新增层: PluginHost 与 HookEventBus
+Create `.trellis/tasks/{task-name}/flow.md` when any of these apply:
 
-Phase 4 引入了两个新的跨层组件:
-
-```
-CLI ──→ Core ←── API ←── Dashboard (HTTP + SSE)
-           ↕
-    ┌──────┼──────┐──────────┐
-    ↓      ↓      ↓          ↓
-   ACP    MCP   PluginHost  HookEventBus
-   Server Server    ↕          ↕
-    ↓      ↓    Plugin[n]  Workflow[n]
-  External      ↕    ↕        ↕
-  Clients   Memory Scheduler ActionRunner
-```
-
-### 关键跨层数据流
-
-#### 流程 1: Plugin 初始化
-
-```
-Daemon 启动 / Agent 创建
-  → Core 读取配置 (config-spec)
-    → PluginHost 初始化 (actant scope)
-      → 遍历 actant-level plugins
-        → 各 Plugin.init(ctx) — ctx 含 logger/eventBus/dataDir/config
-          → 失败: 标记 error + 跳过，不影响其他 Plugin
-        → 各 Plugin.start(ctx)
-      → PluginHost 进入 tick 循环
-    → Agent 创建时: PluginHost 创建 instance scope
-      → 遍历 instance-level plugins
-        → 初始化流程同上，ctx.scope = 'instance'
-```
-
-**边界注意**:
-- actant scope Plugin 的 init 在 Daemon 启动时，instance scope 在 Agent 创建时
-- Plugin 获得的 PluginContext 是隔离的副本，不共享可变状态
-- Plugin 的 dataDir 在 `ACTANT_HOME/plugins/<name>/` (actant) 或 `workspace/.actant/plugins/<name>/` (instance)
-
-#### 流程 2: Hook 事件传播
-
-```
-事件源 (Agent 启动 / Cron / Plugin)
-  → HookEventBus.emit(eventName, payload)
-    → HookRegistry 匹配已注册 Workflow 的 hooks
-      → 过滤: level 匹配 (actant vs instance)
-      → 过滤: eventName 匹配 (支持 wildcard)
-    → ActionRunner 执行匹配到的 actions
-      → shell: 在 cwd 执行命令，注入 vars
-      → builtin: 调用内置操作 (healthcheck, log, notify)
-      → agent: 向目标 Agent dispatch prompt
-```
-
-**边界注意**:
-- 事件名必须是 `HookEventName` 类型，编译期校验
-- ActionRunner 的 shell action 在隔离的子进程中执行，不阻塞事件循环
-- agent action 通过 RPC 分发，目标 Agent 可能不在运行中（需要容错）
-
-#### 流程 3: Memory 与 Materialize 集成
-
-```
-Agent 启动 → Initializer
-  → materialize domainContext (已有流程)
-  → [Phase 5] materialize memory
-    → MemoryPlugin.onMaterialize(ctx)
-      → Instance Memory Store: recall('', { limit: 50 })
-        → 可能触及外部存储后端（具体实现待定）
-      → 格式化为 "Instance Insights" Markdown
-      → 注入到 AGENTS.md
-    → 超时 / 失败: 跳过 memory 注入，记录 warn，Agent 正常启动
-```
-
-**边界注意**:
-- 存储后端（具体选型待定）可能涉及 native 模块的跨平台兼容性问题
-- materialize 有 5s 超时，降级为无 memory 启动
-- `AGENTS.md` 的 memory section 使用标记注释 (`<!-- MEMORY:START -->`)，幂等更新
-
-#### 流程 4: EmailHub 跨 Agent 通信
-
-```
-Agent A (MCP Tool: email.send)
-  → MCP Server → RPC → Core → EmailHub
-    → 路由: 查找目标 Agent B 的 EmailInput
-    → 持久化: 写入发件箱 + 收件箱
-    → 通知: EmailInput.onMessage(email)
-      → Scheduler.InputRouter 将消息转为 Task
-        → TaskDispatcher 分发到 Agent B
-```
-
-**边界注意**:
-- Email 持久化在 `ACTANT_HOME/email/` 目录，JSON 格式
-- Agent 离线时消息入队列，上线后 Scheduler 自动投递
-- EmailHub 不关心消息内容，仅负责路由和持久化
-
-#### 流程 5: Dashboard SSE 数据流
-
-```
-浏览器 → HTTP GET /api/events → SSE 连接建立
-  ← RPC Bridge 每 N 秒轮询:
-    ← daemon.ping → 在线状态
-    ← agent.list → Agent 列表
-    ← agent.status → 各 Agent 详情
-    ← schedule.list → 调度状态
-    ← events.recent → 最近事件 [新 RPC]
-    ← email.stats → 邮件统计 [新 RPC]
-  ← SSE push: { type: "state-update", data: { ... } }
-```
-
-**边界注意**:
-- Dashboard 是只读的，不通过 RPC 修改状态
-- RPC Bridge 连接 Daemon 的 IPC Socket，SSE 推送到浏览器
-- 断线重连: 浏览器 EventSource 自动重连，服务端保持无状态
-
-> **Gotcha: Daemon 版本漂移**
->
-> Daemon 可能长时间运行（数天），而代码可能已经更新。新增的 RPC handler（如 `events.recent`、`activity.*`）在旧 Daemon 进程中不存在。SSE handler **必须**使用 `Promise.allSettled`（而非 `Promise.all`）聚合多个 RPC 调用，确保部分方法不可用时仍能推送可用数据。部署新 handler 后需提醒用户执行 `actant daemon stop && actant daemon start` 重启。
-
-### Phase 4 跨层检查清单
-
-- [ ] 新增的跨层数据是否有明确的类型定义（在 `@actant/shared`）？
-- [ ] Plugin ↔ Host 边界: Plugin 是否只通过 PluginContext API 交互？
-- [ ] Event 边界: 事件 payload 是否可序列化（JSON-safe）？
-- [ ] Memory 边界: recall/navigate/browse 结果是否有容量限制？
-- [ ] Email 边界: 离线投递是否有重试和去重机制？
-- [ ] Dashboard 边界: SSE 数据是否脱敏（不包含 API Key / prompt 内容）？
-- [ ] 所有新增 RPC 方法是否已更新 `api-contracts.md`？
-- [ ] 失败路径: 每个跨层调用是否有超时和降级策略？
+- Feature spans 3+ layers
+- New auth/pathway/error code is introduced
+- External protocol behavior changes (ACP/IPC/SSE)
+- Existing bug came from boundary race or contract drift

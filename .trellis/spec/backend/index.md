@@ -6,16 +6,16 @@
 
 ## Tech Stack
 
-| Layer | Technology | Notes |
-|-------|-----------|-------|
-| Runtime | Node.js (LTS) | TypeScript strict mode |
-| HTTP Framework | Express / Fastify | TBD — 首个 Sprint 确定 |
-| ACP SDK | `@agentclientprotocol/sdk` ^0.14.x | Agent 通信协议 (JSON-RPC 2.0 over stdio) [CHANGED 2026-02-28] |
-| Testing | Vitest | TDD 驱动 |
-| Linting | ESLint + Prettier | 统一代码风格 |
-| Package Manager | pnpm | Monorepo workspace |
-| Build | tsup / tsx | 快速编译 |
-| Validation | zod ^3.25 \| ^4.0 | DTO / config schema 校验 (ACP SDK peer dep) |
+| Layer           | Technology                         | Notes                                                         |
+| --------------- | ---------------------------------- | ------------------------------------------------------------- |
+| Runtime         | Node.js (LTS)                      | TypeScript strict mode                                        |
+| HTTP Framework  | Fastify                            | 统一使用 Fastify 生命周期 Hook 与插件体系                     |
+| ACP SDK         | `@agentclientprotocol/sdk` ^0.14.x | Agent 通信协议 (JSON-RPC 2.0 over stdio) [CHANGED 2026-02-28] |
+| Testing         | Vitest                             | TDD 驱动                                                      |
+| Linting         | ESLint + Prettier                  | 统一代码风格                                                  |
+| Package Manager | pnpm                               | Monorepo workspace                                            |
+| Build           | tsup / tsx                         | 快速编译                                                      |
+| Validation      | zod ^3.25 \| ^4.0                  | DTO / config schema 校验 (ACP SDK peer dep)                   |
 
 ---
 
@@ -112,14 +112,14 @@ packages/
 
 ### 命名规范
 
-| 类型 | 风格 | 示例 |
-|------|------|------|
-| 文件名 | kebab-case | `task-service.ts` |
-| 类 | PascalCase | `TaskService` |
-| 接口 | PascalCase | `CreateTaskDTO` |
-| 函数/方法 | camelCase | `claimTask()` |
-| 常量 | SCREAMING_SNAKE | `MAX_QUEUE_SIZE` |
-| 枚举值 | PascalCase | `TaskStatus.InProgress` |
+| 类型      | 风格            | 示例                    |
+| --------- | --------------- | ----------------------- |
+| 文件名    | kebab-case      | `task-service.ts`       |
+| 类        | PascalCase      | `TaskService`           |
+| 接口      | PascalCase      | `CreateTaskDTO`         |
+| 函数/方法 | camelCase       | `claimTask()`           |
+| 常量      | SCREAMING_SNAKE | `MAX_QUEUE_SIZE`        |
+| 枚举值    | PascalCase      | `TaskStatus.InProgress` |
 
 ### 模块导入顺序
 
@@ -138,13 +138,13 @@ packages/
 
 ### 文件路径
 
-| 规则 | 正确 | 错误 |
-|------|------|------|
-| 拼接路径 | `path.join('a', 'b', 'c')` | `'a/b/c'` 或 `'a\\b\\c'` |
-| 解析绝对路径 | `path.resolve(baseDir, rel)` | 字符串拼接 |
-| 比较路径 | `path.normalize(a) === path.normalize(b)` | 直接字符串比较 |
-| 临时目录 | `os.tmpdir()` | 硬编码 `/tmp` 或 `C:\Temp` |
-| 用户目录 | `os.homedir()` | 硬编码 `~` 或 `%USERPROFILE%` |
+| 规则         | 正确                                      | 错误                          |
+| ------------ | ----------------------------------------- | ----------------------------- |
+| 拼接路径     | `path.join('a', 'b', 'c')`                | `'a/b/c'` 或 `'a\\b\\c'`      |
+| 解析绝对路径 | `path.resolve(baseDir, rel)`              | 字符串拼接                    |
+| 比较路径     | `path.normalize(a) === path.normalize(b)` | 直接字符串比较                |
+| 临时目录     | `os.tmpdir()`                             | 硬编码 `/tmp` 或 `C:\Temp`    |
+| 用户目录     | `os.homedir()`                            | 硬编码 `~` 或 `%USERPROFILE%` |
 
 **禁止**：路径中出现硬编码的 `/` 或 `\` 作为分隔符。唯一例外是 URL 路径（HTTP route）。
 
@@ -160,21 +160,22 @@ function getDefaultIpcPath(name: string): string {
   if (platform() === 'win32') {
     return `\\\\.\\pipe\\dispatch-${name}`;
   }
-  const runtimeDir = process.env.XDG_RUNTIME_DIR
-    ?? path.join(os.tmpdir(), `dispatch-${process.getuid?.() ?? 'default'}`);
+  const runtimeDir =
+    process.env.XDG_RUNTIME_DIR ??
+    path.join(os.tmpdir(), `dispatch-${process.getuid?.() ?? 'default'}`);
   return path.join(runtimeDir, `dispatch-${name}.sock`);
 }
 ```
 
 ### 进程管理
 
-| 操作 | 跨平台方案 |
-|------|-----------|
-| 优雅终止 | 先发 `SIGTERM`，Windows 上使用 `process.kill(pid)` 或 `taskkill` |
-| 强制终止 | `SIGKILL`（Unix）/ `taskkill /F`（Windows） |
-| 信号监听 | 监听 `SIGINT` + `SIGTERM`；Windows 上 `SIGTERM` 不可靠，额外监听 `'exit'` 事件 |
-| 子进程启动 | 使用 `cross-spawn` 或 Node.js `child_process` 的 `shell: true`（慎用）；推荐 `execa` |
-| 进程存活检查 | `process.kill(pid, 0)` 三端通用 |
+| 操作         | 跨平台方案                                                                           |
+| ------------ | ------------------------------------------------------------------------------------ |
+| 优雅终止     | 先发 `SIGTERM`，Windows 上使用 `process.kill(pid)` 或 `taskkill`                     |
+| 强制终止     | `SIGKILL`（Unix）/ `taskkill /F`（Windows）                                          |
+| 信号监听     | 监听 `SIGINT` + `SIGTERM`；Windows 上 `SIGTERM` 不可靠，额外监听 `'exit'` 事件       |
+| 子进程启动   | 使用 `cross-spawn` 或 Node.js `child_process` 的 `shell: true`（慎用）；推荐 `execa` |
+| 进程存活检查 | `process.kill(pid, 0)` 三端通用                                                      |
 
 ### Shell 命令调用
 
@@ -189,18 +190,19 @@ function getCliBin(): string {
 ```
 
 **禁止**：
+
 - 在 prompt 模板中硬编码 `./dispatch` 或 `dispatch.exe`
 - 依赖 `$PATH` 中存在特定可执行文件名
 
 ### 文件系统
 
-| 注意项 | 说明 |
-|--------|------|
+| 注意项       | 说明                                                                          |
+| ------------ | ----------------------------------------------------------------------------- |
 | 大小写敏感性 | Linux 区分大小写，macOS/Windows 默认不区分 → 文件名统一使用 `kebab-case` 小写 |
-| 文件锁 | Windows 对打开的文件有强制锁 → 日志文件用追加模式、避免删除正在写入的文件 |
-| 换行符 | 程序写出的文件统一使用 `\n`（LF），`.gitattributes` 保证 checkout 一致性 |
-| 最大路径长度 | Windows 默认 260 字符限制 → 数据目录不要嵌套过深，任务 ID 使用短格式 |
-| 权限位 | `chmod` 在 Windows 上无效 → 不依赖 Unix 权限位做逻辑判断 |
+| 文件锁       | Windows 对打开的文件有强制锁 → 日志文件用追加模式、避免删除正在写入的文件     |
+| 换行符       | 程序写出的文件统一使用 `\n`（LF），`.gitattributes` 保证 checkout 一致性      |
+| 最大路径长度 | Windows 默认 260 字符限制 → 数据目录不要嵌套过深，任务 ID 使用短格式          |
+| 权限位       | `chmod` 在 Windows 上无效 → 不依赖 Unix 权限位做逻辑判断                      |
 
 ### 环境变量
 
@@ -234,13 +236,13 @@ function testIpcPath(label: string): string {
 
 ### Anti-pattern
 
-| Don't | Do |
-|-------|-----|
-| `fs.writeFileSync('/tmp/foo')` | `fs.writeFileSync(path.join(os.tmpdir(), 'foo'))` |
-| `exec('kill -9 ' + pid)` | 使用 `process.kill(pid, 'SIGKILL')` 或 `tree-kill` 库 |
-| `path.sep === '/'` 做平台判断 | `process.platform === 'linux'` |
-| `#!/usr/bin/env bash` 作为 npm scripts | `tsx src/index.ts` 或 `node dist/index.js` |
-| 依赖 `which` / `where` 查找命令 | 使用 `require.resolve()` 或显式配置路径 |
+| Don't                                      | Do                                                       |
+| ------------------------------------------ | -------------------------------------------------------- |
+| `fs.writeFileSync('/tmp/foo')`             | `fs.writeFileSync(path.join(os.tmpdir(), 'foo'))`        |
+| `exec('kill -9 ' + pid)`                   | 使用 `process.kill(pid, 'SIGKILL')` 或 `tree-kill` 库    |
+| `path.sep === '/'` 做平台判断              | `process.platform === 'linux'`                           |
+| `#!/usr/bin/env bash` 作为 npm scripts     | `tsx src/index.ts` 或 `node dist/index.js`               |
+| 依赖 `which` / `where` 查找命令            | 使用 `require.resolve()` 或显式配置路径                  |
 | IPC 测试用 `path.join(tmpdir, 'xxx.sock')` | 用 `testIpcPath()` 平台工具函数（Windows 用 Named Pipe） |
 
 ---
@@ -256,16 +258,22 @@ class AppError extends Error {
     public code: string,
     message: string,
     public statusCode: number = 500,
-    public details?: unknown
+    public details?: unknown,
   ) {
     super(message);
     this.name = 'AppError';
   }
 }
 
-class NotFoundError extends AppError { /* 404 */ }
-class ConflictError extends AppError { /* 409 */ }
-class ValidationError extends AppError { /* 400 */ }
+class NotFoundError extends AppError {
+  /* 404 */
+}
+class ConflictError extends AppError {
+  /* 409 */
+}
+class ValidationError extends AppError {
+  /* 400 */
+}
 ```
 
 ### 错误处理模式
@@ -319,8 +327,10 @@ app.setErrorHandler(async (error, _request, reply) => {
 
 ```typescript
 app.addHook('preParsing', async (request, _reply, payload) => {
-  if (request.headers['content-type']?.includes('application/json') &&
-      request.headers['content-length'] === '0') {
+  if (
+    request.headers['content-type']?.includes('application/json') &&
+    request.headers['content-length'] === '0'
+  ) {
     request.headers['content-type'] = undefined as unknown as string;
   }
   return payload;
@@ -337,57 +347,57 @@ app.addHook('preParsing', async (request, _reply, payload) => {
 
 ### 日志级别
 
-| Level | Usage |
-|-------|-------|
-| `error` | 需要立即关注的错误 |
-| `warn` | 潜在问题但不影响运行 |
-| `info` | 关键业务事件（任务创建/申领/完成） |
-| `debug` | 调试信息（仅开发环境） |
+| Level   | Usage                              |
+| ------- | ---------------------------------- |
+| `error` | 需要立即关注的错误                 |
+| `warn`  | 潜在问题但不影响运行               |
+| `info`  | 关键业务事件（任务创建/申领/完成） |
+| `debug` | 调试信息（仅开发环境）             |
 
 ### 必须记录的操作类型
 
 **Server 端必须记录**：
 
-| 分类 | 事件 | 日志内容 |
-|------|------|----------|
-| HTTP 请求 | 所有入站 HTTP 请求 | method, path, params, 请求方 IP/clientId, 响应状态码, 耗时 |
-| HTTP 响应 | 所有出站响应 | 对应 requestId, statusCode, body 摘要（脱敏） |
-| 任务事件 | 创建/申领/更新/完成/释放/取消 | taskId, 操作者(clientId/agentId), 前后状态, 时间戳 |
-| Client 事件 | 注册/注销/心跳/超时标记 | clientId, 事件类型, 时间戳 |
-| 回调事件 | 关闭回调发送/重试/成功/失败 | taskId, callbackUrl, 响应状态, 重试次数 |
-| 队列事件 | 入队/执行完成/执行失败 | operationType, 耗时, 错误信息 |
+| 分类        | 事件                          | 日志内容                                                   |
+| ----------- | ----------------------------- | ---------------------------------------------------------- |
+| HTTP 请求   | 所有入站 HTTP 请求            | method, path, params, 请求方 IP/clientId, 响应状态码, 耗时 |
+| HTTP 响应   | 所有出站响应                  | 对应 requestId, statusCode, body 摘要（脱敏）              |
+| 任务事件    | 创建/申领/更新/完成/释放/取消 | taskId, 操作者(clientId/agentId), 前后状态, 时间戳         |
+| Client 事件 | 注册/注销/心跳/超时标记       | clientId, 事件类型, 时间戳                                 |
+| 回调事件    | 关闭回调发送/重试/成功/失败   | taskId, callbackUrl, 响应状态, 重试次数                    |
+| 队列事件    | 入队/执行完成/执行失败        | operationType, 耗时, 错误信息                              |
 
 **Client 端必须记录**：
 
-| 分类 | 事件 | 日志内容 |
-|------|------|----------|
-| HTTP 请求 | 所有出站 HTTP 请求（调 Server API） | method, url, body 摘要, 响应状态码, 耗时 |
-| HTTP 响应 | 所有 Server 响应 | 对应 requestId, statusCode, body 摘要 |
-| 任务事件 | 领取/分发/Worker启动/进度上报/完成/释放 | taskId, agentId, 事件类型, 时间戳 |
-| Agent 事件 | 启动/停止/崩溃/重启 | agentId, 进程PID, 退出码, 原因 |
-| Manager ACP 交互 | 与 Manager Agent 的 ACP 消息收发 | agentId, 消息方向(send/recv), 消息摘要, 时间戳 |
-| Worker CLI 调用 | Worker 通过 CLI 发来的所有命令 | agentId, command(progress/complete/fail/...), payload 摘要, 结果 |
-| IPC 事件 | CLI 下发的所有命令及响应（含用户操作和 Worker 操作） | command, 来源(user/worker), payload 摘要, 结果 |
-| 轮询事件 | 每次 Server 轮询的结果 | 可用任务数, 空闲 Worker 数, dispatchMode, 分发决策(触发 Manager / tag 自动匹配 / 无匹配跳过) |
+| 分类             | 事件                                                 | 日志内容                                                                                     |
+| ---------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| HTTP 请求        | 所有出站 HTTP 请求（调 Server API）                  | method, url, body 摘要, 响应状态码, 耗时                                                     |
+| HTTP 响应        | 所有 Server 响应                                     | 对应 requestId, statusCode, body 摘要                                                        |
+| 任务事件         | 领取/分发/Worker启动/进度上报/完成/释放              | taskId, agentId, 事件类型, 时间戳                                                            |
+| Agent 事件       | 启动/停止/崩溃/重启                                  | agentId, 进程PID, 退出码, 原因                                                               |
+| Manager ACP 交互 | 与 Manager Agent 的 ACP 消息收发                     | agentId, 消息方向(send/recv), 消息摘要, 时间戳                                               |
+| Worker CLI 调用  | Worker 通过 CLI 发来的所有命令                       | agentId, command(progress/complete/fail/...), payload 摘要, 结果                             |
+| IPC 事件         | CLI 下发的所有命令及响应（含用户操作和 Worker 操作） | command, 来源(user/worker), payload 摘要, 结果                                               |
+| 轮询事件         | 每次 Server 轮询的结果                               | 可用任务数, 空闲 Worker 数, dispatchMode, 分发决策(触发 Manager / tag 自动匹配 / 无匹配跳过) |
 
 ### 日志格式规范
 
 ```typescript
 interface AuditLogEntry {
-  timestamp: string;          // ISO 8601
+  timestamp: string; // ISO 8601
   level: 'error' | 'warn' | 'info' | 'debug';
   source: 'server' | 'client' | 'agent';
-  category: string;           // 'http' | 'task' | 'client' | 'agent' | 'ai' | 'ipc' | 'queue' | 'poll'
-  event: string;              // 'task.created' | 'http.request' | 'agent.crashed' 等
+  category: string; // 'http' | 'task' | 'client' | 'agent' | 'ai' | 'ipc' | 'queue' | 'poll'
+  event: string; // 'task.created' | 'http.request' | 'agent.crashed' 等
   message: string;
   context: {
-    requestId?: string;       // HTTP 请求关联 ID
+    requestId?: string; // HTTP 请求关联 ID
     taskId?: string;
     clientId?: string;
     agentId?: string;
     [key: string]: unknown;
   };
-  duration?: number;          // 操作耗时（ms）
+  duration?: number; // 操作耗时（ms）
 }
 ```
 
@@ -451,21 +461,21 @@ async function atomicWrite(filePath: string, content: string | Buffer): Promise<
   const fd = await fs.open(tmpPath, 'w');
   try {
     await fd.writeFile(content);
-    await fd.sync();          // fsync 确保数据落盘
+    await fd.sync(); // fsync 确保数据落盘
   } finally {
     await fd.close();
   }
-  await fs.rename(tmpPath, filePath);  // 原子操作
+  await fs.rename(tmpPath, filePath); // 原子操作
 }
 ```
 
 **为什么必须这样做**：
 
-| 场景 | 直接覆写 | Write → Rename |
-|------|----------|----------------|
-| 写入中途进程崩溃 | 文件损坏（半写状态） | 目标文件不受影响，tmp 文件可清理 |
-| 写入中途断电 | 文件可能为空或损坏 | fsync 保证已写入的 tmp 完整 |
-| 读写并发（队列串行时不会发生，但防御性设计） | 读到不一致数据 | rename 是原子的，读到的要么是旧文件要么是新文件 |
+| 场景                                         | 直接覆写             | Write → Rename                                  |
+| -------------------------------------------- | -------------------- | ----------------------------------------------- |
+| 写入中途进程崩溃                             | 文件损坏（半写状态） | 目标文件不受影响，tmp 文件可清理                |
+| 写入中途断电                                 | 文件可能为空或损坏   | fsync 保证已写入的 tmp 完整                     |
+| 读写并发（队列串行时不会发生，但防御性设计） | 读到不一致数据       | rename 是原子的，读到的要么是旧文件要么是新文件 |
 
 **适用范围**：
 
@@ -488,15 +498,15 @@ async function atomicWrite(filePath: string, content: string | Buffer): Promise<
 
 ```markdown
 ---
-id: "uuid-xxx"
-title: "实现用户认证"
-status: "in_progress"
-tags: ["auth", "backend"]
-priority: "high"
+id: 'uuid-xxx'
+title: '实现用户认证'
+status: 'in_progress'
+tags: ['auth', 'backend']
+priority: 'high'
 claimedBy:
-  clientId: "client-1"
-  agentId: "worker-1"
-createdAt: "2026-02-28T10:00:00Z"
+  clientId: 'client-1'
+  agentId: 'worker-1'
+createdAt: '2026-02-28T10:00:00Z'
 ---
 
 # 实现用户认证
@@ -527,8 +537,8 @@ async function buildWorkerPrompt(
   nodeConfig: ClientConfig,
 ): Promise<string> {
   // 1. 读取模板文件
-  const templatePath = agent.promptTemplate
-    ?? path.join(agent.workDir, 'templates/worker-prompt.md');
+  const templatePath =
+    agent.promptTemplate ?? path.join(agent.workDir, 'templates/worker-prompt.md');
   const template = await fs.readFile(templatePath, 'utf-8');
 
   // 2. 构建变量上下文
@@ -547,8 +557,13 @@ async function buildWorkerPrompt(
   }
 
   // 5. 校验必须包含的关键变量
-  const required = ['task.id', 'task.description', 'artifacts.instructions',
-                    'cli.reference', 'agent.workDir'];
+  const required = [
+    'task.id',
+    'task.description',
+    'artifacts.instructions',
+    'cli.reference',
+    'agent.workDir',
+  ];
   for (const v of required) {
     if (template.includes(`{{${v}}}`) === false) {
       logger.warn(`Template missing required variable: {{${v}}}`);
@@ -569,7 +584,7 @@ async function buildWorkerPrompt(
 import * as acp from '@agentclientprotocol/sdk';
 
 async function launchWorkerWithTask(
-  agentProcess: AgentProcess,   // 已 spawn 的 Agent 进程封装
+  agentProcess: AgentProcess, // 已 spawn 的 Agent 进程封装
   task: Task,
   agentConfig: AgentConfig,
   nodeConfig: ClientConfig,
@@ -614,15 +629,16 @@ async function launchWorkerWithTask(
 
 以下变量由 Node Core 在运行时自动生成，**不应在模板中硬编码其内容**：
 
-| 变量 | 生成逻辑 |
-|------|----------|
-| `{{artifacts.instructions}}` | 从 `api-contracts.md` 中 TaskResultJson Schema 自动生成完整的产物格式说明 |
-| `{{cli.reference}}` | 从 CLI 命令注册表自动生成所有 `dispatch worker` 命令的用法、参数、示例 |
-| `{{cli.progressCmd}}` / `{{cli.completeCmd}}` / ... | 预填充当前 task.id 和路径的命令行模板 |
+| 变量                                                | 生成逻辑                                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------- |
+| `{{artifacts.instructions}}`                        | 从 `api-contracts.md` 中 TaskResultJson Schema 自动生成完整的产物格式说明 |
+| `{{cli.reference}}`                                 | 从 CLI 命令注册表自动生成所有 `dispatch worker` 命令的用法、参数、示例    |
+| `{{cli.progressCmd}}` / `{{cli.completeCmd}}` / ... | 预填充当前 task.id 和路径的命令行模板                                     |
 
 ### 默认模板
 
 初版默认模板位于 `packages/client-node/src/templates/worker-prompt.md`，内容覆盖：
+
 - Worker 角色职责和边界
 - 当前任务完整信息
 - 产物格式要求（zip + result.json 结构 + 必填字段 + 失败条件）
@@ -640,10 +656,10 @@ async function launchWorkerWithTask(
 
 每个已完成任务必须包含以下两项文件：
 
-| 文件 | 要求 | 说明 |
-|------|------|------|
-| `artifact.zip` | **必须** | 包含任务的全部工作成果 |
-| `result.json` | **必须** | 结构化结果描述，符合 `TaskResultJson` Schema |
+| 文件           | 要求     | 说明                                         |
+| -------------- | -------- | -------------------------------------------- |
+| `artifact.zip` | **必须** | 包含任务的全部工作成果                       |
+| `result.json`  | **必须** | 结构化结果描述，符合 `TaskResultJson` Schema |
 
 ### 存储结构
 
@@ -657,11 +673,11 @@ async function launchWorkerWithTask(
 
 ```typescript
 interface TaskResultJson {
-  taskId: string;              // 必须与任务 ID 一致
-  success: boolean;            // 任务是否成功
-  summary: string;             // 人类可读摘要（不可为空）
-  outputs: TaskOutput[];       // 产出物清单（至少 1 项）
-  errors?: string[];           // 错误/警告信息
+  taskId: string; // 必须与任务 ID 一致
+  success: boolean; // 任务是否成功
+  summary: string; // 人类可读摘要（不可为空）
+  outputs: TaskOutput[]; // 产出物清单（至少 1 项）
+  errors?: string[]; // 错误/警告信息
   metrics?: Record<string, number>;
 }
 ```
@@ -705,7 +721,7 @@ Server 收到完成请求时，**必须在状态变更之前**完成以下校验
 interface OperationQueue {
   enqueue(op: Operation): Promise<void>;
   size(): number;
-  drain(): Promise<void>;  // 等待队列清空（用于优雅关闭）
+  drain(): Promise<void>; // 等待队列清空（用于优雅关闭）
 }
 
 interface Operation {
@@ -726,11 +742,11 @@ interface Operation {
 
 ### 测试分类
 
-| 类型 | 路径 | 描述 |
-|------|------|------|
-| 单元测试 | `tests/unit/` | 纯逻辑测试，mock 外部依赖 |
-| 集成测试 | `tests/integration/` | API 端到端、文件 I/O |
-| 黑盒测试 | `tests/e2e/` | 完整功能流程 |
+| 类型     | 路径                 | 描述                      |
+| -------- | -------------------- | ------------------------- |
+| 单元测试 | `tests/unit/`        | 纯逻辑测试，mock 外部依赖 |
+| 集成测试 | `tests/integration/` | API 端到端、文件 I/O      |
+| 黑盒测试 | `tests/e2e/`         | 完整功能流程              |
 
 ### QA 环境禁止模拟 [UPDATED 2026-03-01]
 
@@ -748,6 +764,7 @@ interface Operation {
 > **⚠️ Unit Test / Integration Test / QA Test 中涉及 Worker 交互的测试，Worker 必须是能说 ACP 协议的真实 Agent，不能是 `console.log` + `process.exit` 的 stub。**
 
 **Why**: 非 ACP stub 会导致 `ClientSideConnection.initialize()` 悬挂（永远等不到 JSON-RPC 响应），引发：
+
 - `onTaskCompleted` 永不触发
 - Worker 状态在 busy/idle 之间不一致
 - 单 Worker 贪婪 claim 所有 pending 任务
@@ -755,13 +772,13 @@ interface Operation {
 
 **测试分级**:
 
-| 级别 | Worker 要求 | 适用场景 |
-|------|------------|---------|
-| **单元测试** | Mock `AcpController` 和 `ClientSideConnection` 接口 | 测试 `WorkerManager` 状态机逻辑、`TagMatcher` 匹配规则等 |
-| **集成测试** | 最小真实 ACP Agent（响应 `initialize` + 立即 `end_turn`） | 测试 ClientNode claim → dispatch → complete 完整流程 |
-| **QA 测试** | 完整 ACP Agent（建立 session、上报进度、生成产物） | 端到端业务验证 |
+| 级别         | Worker 要求                                          | 推荐实现                                              | 适用场景                                         |
+| ------------ | ---------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| **单元测试** | Mock `AcpController` 和 `ClientSideConnection` 接口  | vitest mock                                           | 测试 `WorkerManager` 状态机、`TagMatcher` 规则等 |
+| **集成测试** | 最小真实 ACP Agent（`initialize` + 立即 `end_turn`） | `minimal-acp-agent.mjs`（见 § Supported ACP Workers） | ClientNode claim → dispatch → complete 流程      |
+| **QA 测试**  | 完整 ACP Agent（session、进度、真实产物）            | `claude-code-acp`（见 § Supported ACP Workers）       | 端到端业务验证                                   |
 
-**最小 ACP Agent 示例**（用于集成测试）:
+**最小 ACP Agent 示例**（用于集成测试，完整版见 § Supported ACP Workers）:
 
 ```typescript
 // minimal-acp-agent.mjs — 能通过 ACP 握手的最小实现
@@ -827,6 +844,7 @@ private flushStreamBuffers(): void {
 **Gotcha — 重入保护**：`flushStreamBuffers()` → `record()` → `flushLogs()` → `flushStreamBuffers()` 可能形成循环调用。必须加 `flushingStreams` 布尔守卫。
 
 **消息边界** [CHANGED 2026-03-01]：
+
 - `tool_call` / `tool_call_update` 事件到达时 flush（真正的阶段切换）
 - 定时器周期性 flush（`LOG_FLUSH_INTERVAL`，默认 2s）
 - `flushLogs()` 被显式调用时 flush
@@ -853,6 +871,7 @@ ACP session cwd = {agentConfig.workDir}          ← Agent 原始目录，保留
 - 任务完成后从 `taskOutputDirs` Map 中清理引用
 
 **不要**：
+
 - 用 `workDir` 子目录作为 ACP session cwd（Agent 会丢失上下文）
 - 扫描整个 `workDir` 收集产物（会混入 Agent 自身文件和其他任务残留）
 
@@ -910,8 +929,12 @@ CLI 包的 `console.log` 是面向用户的正常输出渠道，不应触发 `no
 ```typescript
 app.addContentTypeParser('*', (_request, payload, done) => {
   let data = '';
-  payload.on('data', (chunk: Buffer) => { data += chunk.toString(); });
-  payload.on('end', () => { done(null, data || undefined); });
+  payload.on('data', (chunk: Buffer) => {
+    data += chunk.toString();
+  });
+  payload.on('end', () => {
+    done(null, data || undefined);
+  });
 });
 ```
 
@@ -938,6 +961,70 @@ curl.exe -X POST -H "Content-Type: application/json" -d "{\"title\":\"test\"}" .
 ```
 
 **适用场景**：QA 脚本、测试自动化、CI pipeline 中在 Windows runner 上运行的 HTTP 请求。
+
+### Supported ACP Workers [NEW 2026-03-01]
+
+> **Worker 必须是能说 ACP 协议的真实 Agent。以下是经过验证的 ACP Worker 实现。**
+
+#### `@zed-industries/claude-code-acp` — Claude Code ACP 适配器（推荐）
+
+使用 [Claude Code SDK](https://platform.claude.com/docs/en/agent-sdk/overview) 实现的 ACP 兼容 Agent，支持文件读写、终端、工具调用、权限请求等完整 ACP 能力。
+
+| 项目         | 内容                                                     |
+| ------------ | -------------------------------------------------------- |
+| npm 包       | `@zed-industries/claude-code-acp`                        |
+| 二进制       | `claude-code-acp`                                        |
+| ACP SDK 版本 | `@agentclientprotocol/sdk` 0.14.1（与 client-node 一致） |
+| 前置条件     | `ANTHROPIC_API_KEY` 环境变量                             |
+| 安装         | `npm install -g @zed-industries/claude-code-acp`         |
+
+**AgentConfig 示例**（`client.config.json` 的 `agents` 数组）：
+
+```json
+{
+  "id": "worker-claude",
+  "type": "worker",
+  "command": "claude-code-acp",
+  "args": [],
+  "workDir": "/path/to/workspace",
+  "capabilities": ["code", "docs", "analysis"],
+  "autoClaimTags": ["code", "docs"],
+  "permissionPolicy": "auto-allow",
+  "acpCapabilities": {
+    "fs": { "readTextFile": true, "writeTextFile": true },
+    "terminal": true
+  }
+}
+```
+
+**完整 Client Node 启动参考**：`.trellis/qa-alpha/start-node.ts`
+
+**注意**：
+
+- 旧版包名 `claude-agent-acp` 已更名为 `claude-code-acp`，代码中如使用旧名需更新
+- Claude Code 每次处理一个任务（`allowMultiProcess` 保持默认 `false`），多任务将排队串行
+- Worker 的 `workDir` 保留 Agent 上下文（skills、rules 等），产物输出到 `.dispatch/output/{taskId}/`
+
+#### 最小 ACP Agent（集成测试用）
+
+能通过 ACP 握手的最小实现，适用于集成测试（非 QA/生产）：
+
+```javascript
+// minimal-acp-agent.mjs
+import { stdin, stdout } from 'process';
+import { createInterface } from 'readline';
+
+const rl = createInterface({ input: stdin });
+const send = (msg) => stdout.write(JSON.stringify(msg) + '\n');
+
+rl.on('line', (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '0.1', capabilities: {} } });
+    send({ jsonrpc: '2.0', method: 'acp.session.update', params: { stopReason: 'end_turn' } });
+  }
+});
+```
 
 ### Service 层模式
 
@@ -1027,6 +1114,7 @@ class ClientNode {
 ```
 
 **关键行为**：
+
 - 心跳失败 3 次触发重连，单次失败仅记日志
 - 重连期间停止任务轮询，避免在断连状态下领取任务
 - 若 Server 返回 "already registered"，尝试 `listClients()` 找到现有记录复用
@@ -1040,6 +1128,7 @@ class ClientNode {
 **Pattern**: 终态任务隔天归档 + 轻量索引 + TTL 缓存
 
 **归档目录结构**：
+
 ```
 {dataDir}/
 ├── tasks/                    ← 活跃任务（pending/claimed/in_progress + 当天终态）
@@ -1051,19 +1140,21 @@ class ClientNode {
 
 **三层数据访问**：
 
-| 层 | 数据 | 访问方式 |
-|----|------|----------|
-| 活跃任务 | 完整 Task | `TaskStore.list()` 仅扫描 `tasks/` 目录 |
-| 归档索引 | TaskSummary | `ArchiveIndex` 内存 Map，从 `index.json` 加载 |
-| 归档详情 | 完整 Task | `ArchiveCache` TTL Map（默认 1h），miss 时从磁盘读取 |
+| 层       | 数据        | 访问方式                                             |
+| -------- | ----------- | ---------------------------------------------------- |
+| 活跃任务 | 完整 Task   | `TaskStore.list()` 仅扫描 `tasks/` 目录              |
+| 归档索引 | TaskSummary | `ArchiveIndex` 内存 Map，从 `index.json` 加载        |
+| 归档详情 | 完整 Task   | `ArchiveCache` TTL Map（默认 1h），miss 时从磁盘读取 |
 
 **归档调度器**（`ArchiveScheduler`）：
+
 - 默认每小时检查一次（`archive.checkInterval`）
 - 归档条件：`status ∈ {completed, failed, cancelled}` 且 `updatedAt < 今天 00:00`
 - 通过 OperationQueue 串行执行文件移动，保证原子性
 - 移动后更新 ArchiveIndex 并持久化 `index.json`
 
 **配置**（`ServerConfig.archive`）：
+
 ```typescript
 archive: {
   checkInterval: 3600000,     // 归档检查间隔 (ms)
@@ -1073,6 +1164,7 @@ archive: {
 ```
 
 **关键约束**：
+
 - 磁盘数据**永不自动删除**
 - `GET /tasks` 仅返回活跃任务，`GET /tasks/archived` 返回归档摘要
 - `GET /tasks/:id` 先查活跃 → 查缓存 → 从磁盘加载归档
@@ -1130,12 +1222,12 @@ private async releaseTasksForOfflineClients(offlineClientIds: string[]): Promise
 
 **关键设计点**：
 
-| 决策 | 原因 |
-|------|------|
-| 同时扫描 `claimed` 和 `in_progress` | 竞态窗口：任务可能在 Client 被标记 offline 的瞬间从 claimed 转为 in_progress |
-| 每次扫描**所有** offline Client | 防止遗漏：上一轮已 offline 的 Client 可能仍持有任务（时序问题） |
-| `TaskService` 通过 setter 注入到 `ClientService` | 避免循环依赖（两个 Service 互相引用） |
-| `VALID_TASK_TRANSITIONS` 允许 `in_progress → pending` | 必须在 shared 层修改，否则释放会被状态机拒绝 |
+| 决策                                                  | 原因                                                                         |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------- |
+| 同时扫描 `claimed` 和 `in_progress`                   | 竞态窗口：任务可能在 Client 被标记 offline 的瞬间从 claimed 转为 in_progress |
+| 每次扫描**所有** offline Client                       | 防止遗漏：上一轮已 offline 的 Client 可能仍持有任务（时序问题）              |
+| `TaskService` 通过 setter 注入到 `ClientService`      | 避免循环依赖（两个 Service 互相引用）                                        |
+| `VALID_TASK_TRANSITIONS` 允许 `in_progress → pending` | 必须在 shared 层修改，否则释放会被状态机拒绝                                 |
 
 **Anti-pattern**：
 
@@ -1154,7 +1246,7 @@ if (client.status === 'online' && elapsed > timeout) {
 // app.ts — 正确的初始化顺序
 const taskService = new TaskService(taskStore, queue);
 const clientService = new ClientService(clientStore, queue, config);
-clientService.setTaskService(taskService);  // 打破循环依赖
+clientService.setTaskService(taskService); // 打破循环依赖
 ```
 
 ### Worker 任务生命周期：idle 标记顺序 [NEW 2026-03-01]
@@ -1234,14 +1326,14 @@ handleWorkerExit(agentId, exitCode) {
 
 > **任何涉及以下内容的修改都属于契约变更，必须审慎处理：**
 
-| 变更类型 | 涉及文件 | 示例 |
-|----------|----------|------|
-| REST API 路径/方法/参数 | `api-contracts.md` | 新增字段、改路径、删除端点 |
-| DTO / 类型定义 | `api-contracts.md` | 增删字段、改类型 |
-| IPC 消息格式 | `api-contracts.md` | 改 command 名、payload 结构 |
-| 错误码 | `api-contracts.md` | 新增/重命名/删除错误码 |
-| 配置 Schema | `config-spec.md` | 增删字段、改默认值、改类型 |
-| 环境变量 | `config-spec.md` | 新增/重命名/删除 |
+| 变更类型                | 涉及文件           | 示例                        |
+| ----------------------- | ------------------ | --------------------------- |
+| REST API 路径/方法/参数 | `api-contracts.md` | 新增字段、改路径、删除端点  |
+| DTO / 类型定义          | `api-contracts.md` | 增删字段、改类型            |
+| IPC 消息格式            | `api-contracts.md` | 改 command 名、payload 结构 |
+| 错误码                  | `api-contracts.md` | 新增/重命名/删除错误码      |
+| 配置 Schema             | `config-spec.md`   | 增删字段、改默认值、改类型  |
+| 环境变量                | `config-spec.md`   | 新增/重命名/删除            |
 
 **强制流程**：
 
@@ -1251,6 +1343,7 @@ handleWorkerExit(agentId, exitCode) {
 4. **Breaking Change Commit** — 使用 `feat(api)!: description` 格式
 
 **绝对禁止**：
+
 - ❌ 改了代码中的接口但没更新 spec
 - ❌ Spec 和实现不一致
 - ❌ 只改了一端（如只改 Server 不改 Client 消费方）

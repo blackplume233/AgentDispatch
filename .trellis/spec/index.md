@@ -4,14 +4,15 @@
 
 ## Project Summary
 
-AgentDispatch 是一个 CS 架构的 **Agent 任务分发平台**，由四个核心模块组成：
+AgentDispatch 是一个 CS 架构的 **Agent 任务分发平台**，由 **4 个运行时模块 + 1 个 Shared 基础模块** 组成：
 
-| 模块 | 职责 | 技术要点 |
-|------|------|----------|
-| **Server** | 任务管理中枢，RESTful API | 队列单线程、Markdown/JSON 落盘 |
-| **Dashboard** | Server 可视化看板 | React + shadcn/ui |
-| **ClientNode** | 客户端服务，管理 Agent 集群 | ACP 协议、Manager(可选)/Worker 模式 |
-| **ClientCLI** | ClientNode 的命令行控制器 | IPC 通信 |
+| 模块           | 职责                         | 技术要点                            |
+| -------------- | ---------------------------- | ----------------------------------- |
+| **Server**     | 任务管理中枢，RESTful API    | 队列单线程、Markdown/JSON 落盘      |
+| **Dashboard**  | Server 可视化看板            | React + shadcn/ui                   |
+| **ClientNode** | 客户端服务，管理 Agent 集群  | ACP 协议、Manager(可选)/Worker 模式 |
+| **ClientCLI**  | ClientNode 的命令行控制器    | IPC 通信                            |
+| **Shared**     | 跨模块共享类型、错误码与工具 | 契约一致性、复用基础能力            |
 
 ### 核心设计原则
 
@@ -76,18 +77,21 @@ spec/
 ## Module Responsibilities
 
 ### Server
+
 - 任务生命周期管理：创建 → 申领 → 进度更新 → 关闭 → 关闭回调
 - Client 注册与管理
 - 所有操作通过内部队列串行执行
 - 任务数据以 Markdown/JSON 文件实时持久化
 
 ### Dashboard
+
 - 任务看板：按状态分列显示（待办/进行中/已完成）
 - 任务详情：进度、日志、Worker 信息
 - Client 节点状态：在线/离线、Agent 列表、负载
 - 基于 shadcn/ui 组件库
 
 ### ClientNode
+
 - 注册到 Server，维持心跳
 - **所有 Server 通信由 ClientNode Core 统一处理**
 - **两种任务分发模式**（可共存）：
@@ -100,6 +104,7 @@ spec/
 - 通过 ACP 启动/停止 Agent 进程
 
 ### ClientCLI
+
 - 通过 IPC 控制 ClientNode
 - **既是用户操控工具，也是 Worker Agent 的通信通道**
 - 所有 ClientNode 功能的命令行映射
