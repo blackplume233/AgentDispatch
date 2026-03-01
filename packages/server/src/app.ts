@@ -6,9 +6,13 @@ import { OperationQueue } from './queue/operation-queue.js';
 import { TaskStore } from './store/task-store.js';
 import { ClientStore } from './store/client-store.js';
 import { LogStore } from './store/log-store.js';
+import { ArchiveIndex } from './store/archive-index.js';
+import { ArchiveCache } from './store/archive-cache.js';
 import { TaskService } from './services/task-service.js';
 import { ClientService } from './services/client-service.js';
 import { ArtifactService } from './services/artifact-service.js';
+import { AttachmentService } from './services/attachment-service.js';
+import { ArchiveScheduler } from './services/archive-scheduler.js';
 import { Logger } from './utils/logger.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerClientRoutes } from './routes/clients.js';
@@ -17,6 +21,9 @@ export interface AppContext {
   taskService: TaskService;
   clientService: ClientService;
   artifactService: ArtifactService;
+  attachmentService: AttachmentService;
+  archiveScheduler: ArchiveScheduler;
+  archiveCache: ArchiveCache;
   logStore: LogStore;
   logger: Logger;
   queue: OperationQueue;
@@ -44,9 +51,30 @@ export async function createApp(
   const queue = new OperationQueue(config.queue.maxSize);
   const artifactService = new ArtifactService(config.artifacts.dir, config.artifacts.maxZipSizeBytes);
   await artifactService.init();
+  const attachmentService = new AttachmentService(
+    config.attachments.dir,
+    config.attachments.maxFileSizeBytes,
+    config.attachments.maxTotalSizeBytes,
+    config.attachments.maxFileCount,
+  );
+  await attachmentService.init();
   const logStore = new LogStore(config.logging.dir);
   await logStore.init();
+
+  // Archive subsystem
+  const archiveIndex = new ArchiveIndex(taskStore.getArchiveDir());
+  await archiveIndex.init();
+  const archiveCache = new ArchiveCache(config.archive.cacheMaxAge);
+  archiveCache.start();
+
   const taskService = new TaskService(taskStore, queue, logger);
+  taskService.setArchive(archiveIndex, archiveCache);
+
+  const archiveScheduler = new ArchiveScheduler(
+    taskStore, archiveIndex, queue, logger,
+    config.archive.checkInterval, config.archive.archiveAfterDays,
+  );
+
   const clientService = new ClientService(
     clientStore,
     queue,
@@ -107,17 +135,22 @@ export async function createApp(
     });
   });
 
-  // Multipart support for artifact uploads
-  await app.register(multipart);
+  // Multipart support for artifact uploads and attachments
+  await app.register(multipart, {
+    limits: { fileSize: config.attachments.maxFileSizeBytes },
+  });
 
   // Register routes
-  registerTaskRoutes(app, taskService, artifactService, logStore);
+  registerTaskRoutes(app, taskService, artifactService, attachmentService, logStore);
   registerClientRoutes(app, clientService, logStore);
 
   // Health check
   app.get('/health', async () => ({ status: 'ok', version: '0.0.1' }));
 
-  const context: AppContext = { taskService, clientService, artifactService, logStore, logger, queue };
+  const context: AppContext = {
+    taskService, clientService, artifactService, attachmentService,
+    archiveScheduler, archiveCache, logStore, logger, queue,
+  };
 
   return { app, context };
 }

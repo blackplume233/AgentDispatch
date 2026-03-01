@@ -19,6 +19,7 @@
 | 日期 | 变更 | 类型 | 影响范围 |
 |------|------|------|----------|
 | 2026-02-28 | AgentConfig.workDir 语义明确：ACP session cwd 始终为 Agent 注册的 workDir（保留 Agent 上下文/skills）；产物输出到隔离子目录 `{workDir}/.dispatch/output/{taskId-prefix}/`；进度汇报改为纯状态描述 | [CHANGED] | ClientNode |
+| 2026-03-01 | ServerConfig 新增 `attachments` 配置段；Server 数据目录新增 `attachments/{task-id}/` 存储结构；ClientNode 新增 `{workDir}/.dispatch/input/{taskId-prefix}/` 输入目录 | [CHANGED] | Server, ClientNode |
 | 2026-02-28 | ServerConfig 新增 `artifacts` 配置段；Server 数据目录新增 `artifacts/{task-id}/` 存储结构 | [CHANGED] | Server |
 | 2026-02-28 | ClientConfig 新增 `dispatchMode` 字段；Manager Agent 从必须改为按模式可选；DispatchRule 新增 `priority`；autoDispatch 新增 `fallbackAction` | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-02-28 | AgentConfig 明确 ACP SDK 集成字段；新增 `acpCapabilities` 配置段；`command` 字段说明更新为 ACP Agent 启动命令 | [CHANGED] | ClientNode |
@@ -74,6 +75,14 @@ interface ServerConfig {
     retryDelay: number;            // 重试间隔（ms）
   };
 
+  // [CHANGED 2026-03-01] 任务附件配置
+  attachments: {
+    dir: string;                   // 附件存储目录，默认 {dataDir}/attachments
+    maxFileSizeBytes: number;      // 单文件最大大小，默认 50MB
+    maxTotalSizeBytes: number;     // 单任务总附件上限，默认 200MB
+    maxFileCount: number;          // 单任务最大文件数，默认 20
+  };
+
   // [CHANGED 2026-02-28] 任务产物配置
   artifacts: {
     dir: string;                   // 产物存储目录，默认 {dataDir}/artifacts
@@ -99,6 +108,10 @@ interface ServerConfig {
 ├── tasks/
 │   ├── {task-id}.md               # 任务详情（Markdown）
 │   └── {task-id}.json             # 任务元数据
+├── attachments/                   # [CHANGED 2026-03-01] 任务输入附件
+│   └── {task-id}/
+│       ├── requirements.pdf       # 用户上传的附件文件
+│       └── dataset.csv
 ├── artifacts/                     # ⚠️ [CHANGED 2026-02-28] 任务产物（必须）
 │   └── {task-id}/
 │       ├── artifact.zip           # 工作成果 zip 包

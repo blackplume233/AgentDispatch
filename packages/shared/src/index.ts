@@ -5,14 +5,16 @@ export type {
   Task,
   TaskStatus,
   TaskPriority,
+  TaskAttachment,
   TaskArtifacts,
   TaskResultJson,
   TaskOutput,
+  TaskSummary,
   InteractionStepType,
   InteractionLogEntry,
   ArtifactFileEntry,
 } from './types/task.js';
-export { VALID_TASK_TRANSITIONS, isValidTransition } from './types/task.js';
+export { VALID_TASK_TRANSITIONS, TERMINAL_TASK_STATUSES, isValidTransition, toTaskSummary } from './types/task.js';
 
 export type { Client, ClientStatus, DispatchMode } from './types/client.js';
 

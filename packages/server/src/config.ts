@@ -10,6 +10,12 @@ const DEFAULT_CONFIG: ServerConfig = {
   queue: { maxSize: 1000, processInterval: 100 },
   heartbeat: { timeout: 60000, checkInterval: 15000 },
   callbacks: { retryCount: 3, retryDelay: 5000 },
+  attachments: {
+    dir: '',
+    maxFileSizeBytes: 50 * 1024 * 1024,
+    maxTotalSizeBytes: 200 * 1024 * 1024,
+    maxFileCount: 20,
+  },
   artifacts: {
     dir: '',
     maxZipSizeBytes: 500 * 1024 * 1024,
@@ -22,6 +28,11 @@ const DEFAULT_CONFIG: ServerConfig = {
     retainDays: 30,
     httpLog: true,
     auditLog: true,
+  },
+  archive: {
+    checkInterval: 3600000,
+    archiveAfterDays: 1,
+    cacheMaxAge: 3600000,
   },
 };
 
@@ -59,6 +70,12 @@ export function loadConfig(configPath?: string): ServerConfig {
       retryCount: fc.callbacks?.retryCount ?? DEFAULT_CONFIG.callbacks.retryCount,
       retryDelay: fc.callbacks?.retryDelay ?? DEFAULT_CONFIG.callbacks.retryDelay,
     },
+    attachments: {
+      dir: fc.attachments?.dir || path.join(dataDir, 'attachments'),
+      maxFileSizeBytes: fc.attachments?.maxFileSizeBytes ?? DEFAULT_CONFIG.attachments.maxFileSizeBytes,
+      maxTotalSizeBytes: fc.attachments?.maxTotalSizeBytes ?? DEFAULT_CONFIG.attachments.maxTotalSizeBytes,
+      maxFileCount: fc.attachments?.maxFileCount ?? DEFAULT_CONFIG.attachments.maxFileCount,
+    },
     artifacts: {
       dir: fc.artifacts?.dir || path.join(dataDir, 'artifacts'),
       maxZipSizeBytes: fc.artifacts?.maxZipSizeBytes ?? DEFAULT_CONFIG.artifacts.maxZipSizeBytes,
@@ -71,6 +88,11 @@ export function loadConfig(configPath?: string): ServerConfig {
       retainDays: fc.logging?.retainDays ?? DEFAULT_CONFIG.logging.retainDays,
       httpLog: fc.logging?.httpLog ?? DEFAULT_CONFIG.logging.httpLog,
       auditLog: fc.logging?.auditLog ?? DEFAULT_CONFIG.logging.auditLog,
+    },
+    archive: {
+      checkInterval: fc.archive?.checkInterval ?? DEFAULT_CONFIG.archive.checkInterval,
+      archiveAfterDays: fc.archive?.archiveAfterDays ?? DEFAULT_CONFIG.archive.archiveAfterDays,
+      cacheMaxAge: fc.archive?.cacheMaxAge ?? DEFAULT_CONFIG.archive.cacheMaxAge,
     },
   };
 }

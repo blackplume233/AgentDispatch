@@ -19,6 +19,12 @@ describe('Task API', () => {
       queue: { maxSize: 100, processInterval: 10 },
       heartbeat: { timeout: 60000, checkInterval: 60000 },
       callbacks: { retryCount: 0, retryDelay: 1000 },
+      attachments: {
+        dir: path.join(tmpDir, 'attachments'),
+        maxFileSizeBytes: 50 * 1024 * 1024,
+        maxTotalSizeBytes: 200 * 1024 * 1024,
+        maxFileCount: 20,
+      },
       artifacts: {
         dir: path.join(tmpDir, 'artifacts'),
         maxZipSizeBytes: 500 * 1024 * 1024,

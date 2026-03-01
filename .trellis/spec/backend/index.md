@@ -903,6 +903,51 @@ class ClientNode {
 - `stop()` 设置 `this.stopped = true`，优雅关闭期间不会尝试重连
 - 心跳恢复后自动清零失败计数，日志记录恢复事件
 
+### 任务归档与内存管理 [NEW 2026-03-01]
+
+> **Problem**: `TaskStore.list()` 全量扫描磁盘并反序列化所有任务 JSON，随终态任务累积导致内存和 I/O 线性增长。
+
+**Pattern**: 终态任务隔天归档 + 轻量索引 + TTL 缓存
+
+**归档目录结构**：
+```
+{dataDir}/
+├── tasks/                    ← 活跃任务（pending/claimed/in_progress + 当天终态）
+├── tasks-archive/            ← 归档任务（隔天后的 completed/failed/cancelled）
+│   ├── index.json            ← TaskSummary[] 轻量索引（启动时加载到内存）
+│   ├── {taskId}.json         ← 完整 Task JSON（按需读取）
+│   └── {taskId}.md           ← Markdown 副本
+```
+
+**三层数据访问**：
+
+| 层 | 数据 | 访问方式 |
+|----|------|----------|
+| 活跃任务 | 完整 Task | `TaskStore.list()` 仅扫描 `tasks/` 目录 |
+| 归档索引 | TaskSummary | `ArchiveIndex` 内存 Map，从 `index.json` 加载 |
+| 归档详情 | 完整 Task | `ArchiveCache` TTL Map（默认 1h），miss 时从磁盘读取 |
+
+**归档调度器**（`ArchiveScheduler`）：
+- 默认每小时检查一次（`archive.checkInterval`）
+- 归档条件：`status ∈ {completed, failed, cancelled}` 且 `updatedAt < 今天 00:00`
+- 通过 OperationQueue 串行执行文件移动，保证原子性
+- 移动后更新 ArchiveIndex 并持久化 `index.json`
+
+**配置**（`ServerConfig.archive`）：
+```typescript
+archive: {
+  checkInterval: 3600000,     // 归档检查间隔 (ms)
+  archiveAfterDays: 1,        // 终态任务多少天后归档
+  cacheMaxAge: 3600000,       // 归档缓存 TTL (ms)
+}
+```
+
+**关键约束**：
+- 磁盘数据**永不自动删除**
+- `GET /tasks` 仅返回活跃任务，`GET /tasks/archived` 返回归档摘要
+- `GET /tasks/:id` 先查活跃 → 查缓存 → 从磁盘加载归档
+- `DELETE /tasks/:id` 对活跃和归档任务都有效
+
 ### 防御性编程
 
 - 所有外部输入必须校验（使用 zod 或类似库）

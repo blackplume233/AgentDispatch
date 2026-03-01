@@ -2,6 +2,14 @@ export type TaskStatus = 'pending' | 'claimed' | 'in_progress' | 'completed' | '
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type ClientStatus = 'online' | 'offline' | 'busy';
 
+export interface TaskAttachment {
+  filename: string;
+  originalName: string;
+  sizeBytes: number;
+  mimeType: string;
+  uploadedAt: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -12,6 +20,7 @@ export interface Task {
   progress?: number;
   progressMessage?: string;
   claimedBy?: { clientId: string; agentId: string };
+  attachments?: TaskAttachment[];
   artifacts?: {
     zipFile: string;
     zipSizeBytes: number;
@@ -51,6 +60,18 @@ export interface Client {
   agents: AgentInfo[];
   lastHeartbeat: string;
   registeredAt: string;
+}
+
+export interface TaskSummary {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  tags: string[];
+  priority: TaskPriority;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  archived: true;
 }
 
 export interface CreateTaskInput {

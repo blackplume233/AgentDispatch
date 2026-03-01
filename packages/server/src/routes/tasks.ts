@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { TaskService } from '../services/task-service.js';
 import type { ArtifactService } from '../services/artifact-service.js';
+import type { AttachmentService } from '../services/attachment-service.js';
 import type { LogStore } from '../store/log-store.js';
 import type {
   TaskStatus,
@@ -20,10 +21,54 @@ export function registerTaskRoutes(
   app: FastifyInstance,
   taskService: TaskService,
   artifactService: ArtifactService,
+  attachmentService: AttachmentService,
   logStore: LogStore,
 ): void {
-  app.post<{ Body: CreateTaskDTO }>('/api/v1/tasks', async (request, reply) => {
-    const task = await taskService.createTask(request.body);
+  app.post('/api/v1/tasks', async (request, reply) => {
+    const contentType = request.headers['content-type'] ?? '';
+
+    if (contentType.includes('multipart/form-data')) {
+      const parts = request.parts();
+      let dto: CreateTaskDTO | null = null;
+      const fileBuffers: Array<{ originalName: string; buffer: Buffer; mimeType: string }> = [];
+
+      for await (const part of parts) {
+        if (part.type === 'field' && part.fieldname === 'data') {
+          try {
+            dto = JSON.parse(part.value as string) as CreateTaskDTO;
+          } catch {
+            throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'Invalid JSON in "data" field');
+          }
+        } else if (part.type === 'file' && part.fieldname === 'files') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of part.file) {
+            chunks.push(chunk);
+          }
+          fileBuffers.push({
+            originalName: part.filename ?? 'unnamed',
+            buffer: Buffer.concat(chunks),
+            mimeType: part.mimetype ?? 'application/octet-stream',
+          });
+        }
+      }
+
+      if (!dto) {
+        throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'Missing "data" field in multipart request');
+      }
+
+      const task = await taskService.createTask(dto);
+
+      if (fileBuffers.length > 0) {
+        const attachments = await attachmentService.store(task.id, fileBuffers);
+        const updated = await taskService.setAttachments(task.id, attachments);
+        return reply.code(201).send(updated);
+      }
+
+      return reply.code(201).send(task);
+    }
+
+    // Fallback: plain JSON body
+    const task = await taskService.createTask(request.body as CreateTaskDTO);
     return reply.code(201).send(task);
   });
 
@@ -34,6 +79,19 @@ export function registerTaskRoutes(
       return taskService.listTasks({
         status,
         tag,
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+      });
+    },
+  );
+
+  app.get<{ Querystring: { tag?: string; search?: string; page?: string; limit?: string } }>(
+    '/api/v1/tasks/archived',
+    async (request) => {
+      const { tag, search, page, limit } = request.query;
+      return taskService.listArchivedTasks({
+        tag,
+        search,
         page: page ? Number(page) : undefined,
         limit: limit ? Number(limit) : undefined,
       });
@@ -185,6 +243,35 @@ export function registerTaskRoutes(
         .header('Content-Type', contentType)
         .header('Content-Disposition', `inline; filename="${path.basename(filePath)}"`)
         .send(buffer);
+    },
+  );
+
+  // --- Attachment endpoints ---
+
+  app.get<{ Params: { id: string } }>(
+    '/api/v1/tasks/:id/attachments',
+    async (request) => {
+      const task = await taskService.getTask(request.params.id);
+      return task.attachments ?? [];
+    },
+  );
+
+  app.get<{ Params: { id: string; filename: string } }>(
+    '/api/v1/tasks/:id/attachments/:filename',
+    async (request, reply) => {
+      await taskService.getTask(request.params.id);
+      const { filePath, exists } = await attachmentService.getFile(
+        request.params.id,
+        request.params.filename,
+      );
+      if (!exists) {
+        throw new ValidationError(ErrorCode.VALIDATION_ERROR, `Attachment "${request.params.filename}" not found`);
+      }
+      const stream = fs.createReadStream(filePath);
+      return reply
+        .header('Content-Type', 'application/octet-stream')
+        .header('Content-Disposition', `attachment; filename="${path.basename(filePath)}"`)
+        .send(stream);
     },
   );
 }

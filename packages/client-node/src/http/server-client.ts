@@ -1,7 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, createWriteStream } from 'node:fs';
+import fs from 'node:fs';
 import path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type {
   Task,
+  TaskAttachment,
   Client,
   RegisterClientDTO,
   HeartbeatDTO,
@@ -113,6 +117,24 @@ export class ServerHttpClient {
   async appendClientLogs(clientId: string, entries: ClientLogEntry[]): Promise<void> {
     if (entries.length === 0) return;
     await this.request<undefined>('POST', `/clients/${clientId}/logs`, { entries });
+  }
+
+  async listAttachments(taskId: string): Promise<TaskAttachment[]> {
+    return this.request<TaskAttachment[]>('GET', `/tasks/${taskId}/attachments`);
+  }
+
+  async downloadAttachment(taskId: string, filename: string, destPath: string): Promise<void> {
+    const url = `${this.baseUrl}/tasks/${taskId}/attachments/${encodeURIComponent(filename)}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to download attachment "${filename}": HTTP ${response.status}`);
+    }
+    if (!response.body) {
+      throw new Error(`Empty response body for attachment "${filename}"`);
+    }
+    await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+    const readable = Readable.fromWeb(response.body as import('node:stream/web').ReadableStream);
+    await pipeline(readable, createWriteStream(destPath));
   }
 
   async completeTask(taskId: string, opts: CompleteTaskOptions): Promise<Task> {

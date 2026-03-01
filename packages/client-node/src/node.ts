@@ -29,6 +29,7 @@ export class ClientNode {
   private dispatching = false;
   private clientLogBuffer: ClientLogEntry[] = [];
   private taskOutputDirs: Map<string, string> = new Map();
+  private taskInputDirs: Map<string, string> = new Map();
   private consecutiveHeartbeatFailures = 0;
   private reconnecting = false;
   private stopped = false;
@@ -237,8 +238,16 @@ export class ClientNode {
             const outputDir = path.join(agentCfg.workDir, '.dispatch', 'output', task.id.slice(0, 12));
             await fs.promises.mkdir(outputDir, { recursive: true });
             this.taskOutputDirs.set(task.id, outputDir);
-            await this.acpController.launchAgent(agentCfg, task, outputDir);
-            this.log(`Launched agent ${decision.agentId} for task ${task.id.slice(0, 8)} (outputDir=${outputDir})`);
+
+            let inputDir: string | undefined;
+            if (task.attachments && task.attachments.length > 0) {
+              inputDir = path.join(agentCfg.workDir, '.dispatch', 'input', task.id.slice(0, 12));
+              await this.downloadAttachments(task, inputDir);
+              this.taskInputDirs.set(task.id, inputDir);
+            }
+
+            await this.acpController.launchAgent(agentCfg, task, outputDir, inputDir);
+            this.log(`Launched agent ${decision.agentId} for task ${task.id.slice(0, 8)} (outputDir=${outputDir}${inputDir ? `, inputDir=${inputDir}` : ''})`);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -285,6 +294,7 @@ export class ClientNode {
           }
         }
         this.taskOutputDirs.delete(taskId);
+        this.taskInputDirs.delete(taskId);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         this.log(`Failed to upload artifacts for ${taskId.slice(0, 8)}: ${msg}`);
@@ -413,6 +423,24 @@ export class ClientNode {
       }
     }
     return results;
+  }
+
+  private async downloadAttachments(task: Task, inputDir: string): Promise<void> {
+    if (!task.attachments || task.attachments.length === 0) return;
+
+    await fs.promises.mkdir(inputDir, { recursive: true });
+    this.log(`Downloading ${task.attachments.length} attachment(s) for task ${task.id.slice(0, 8)}...`);
+
+    for (const attachment of task.attachments) {
+      const destPath = path.join(inputDir, attachment.filename);
+      try {
+        await this.httpClient.downloadAttachment(task.id, attachment.filename, destPath);
+        this.log(`  Downloaded: ${attachment.filename} (${(attachment.sizeBytes / 1024).toFixed(1)} KB)`);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.log(`  Failed to download ${attachment.filename}: ${msg}`);
+      }
+    }
   }
 
   private async reportAgentProgress(

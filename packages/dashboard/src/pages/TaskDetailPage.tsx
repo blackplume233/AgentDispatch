@@ -5,7 +5,7 @@ import { useParams, Link } from "react-router-dom";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  ArrowLeft, FileArchive, FileJson, Clock, User, Download,
+  ArrowLeft, FileArchive, FileJson, Clock, User, Download, Paperclip,
   Eye, AlertCircle, Brain, MessageSquare, Wrench, Shield,
   FileText, Terminal, ListChecks, Info, ChevronDown, ChevronRight,
   XCircle,
@@ -212,6 +212,47 @@ export function TaskDetailPage(): React.ReactElement {
           </CardHeader>
           <CardContent>
             <div className="whitespace-pre-wrap text-sm">{task.description}</div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Attachments */}
+      {task.attachments && task.attachments.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Paperclip className="h-4 w-4" />
+              {t("tasks.detail.attachments")}
+              <Badge variant="secondary" className="ml-auto text-[10px] py-0 h-5 font-normal">
+                {task.attachments.length}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1">
+              {task.attachments.map((att) => {
+                const sizeStr = att.sizeBytes < 1024
+                  ? `${att.sizeBytes} B`
+                  : att.sizeBytes < 1024 * 1024
+                    ? `${(att.sizeBytes / 1024).toFixed(1)} KB`
+                    : `${(att.sizeBytes / (1024 * 1024)).toFixed(1)} MB`;
+                return (
+                  <div key={att.filename} className="flex items-center gap-2 border rounded-lg p-2">
+                    <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="flex-1 text-sm font-mono truncate" title={att.originalName}>
+                      {att.originalName}
+                    </span>
+                    <span className="text-xs text-muted-foreground shrink-0">{sizeStr}</span>
+                    <a href={api.attachments.downloadUrl(task.id, att.filename)} download>
+                      <Button variant="ghost" size="sm" className="h-7 px-2">
+                        <Download className="h-3.5 w-3.5 mr-1" />
+                        {t("tasks.detail.download")}
+                      </Button>
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
       )}

@@ -21,6 +21,8 @@
 
 | 日期 | 变更 | 类型 | 影响范围 |
 |------|------|------|----------|
+| 2026-03-01 | 任务归档机制：终态任务隔天自动归档到 `tasks-archive/`；新增 `GET /tasks/archived` 返回 `TaskSummary[]`；`GET /tasks/:id` 支持归档回退；归档详情 1h TTL 缓存；Logger 跨天切换 stream；`ServerConfig.archive` 配置块 | [CHANGED] | Server, Dashboard |
+| 2026-03-01 | Task 附件功能：`POST /tasks` 支持 multipart/form-data 上传附件（向后兼容 JSON）；新增 `GET /tasks/:id/attachments` 列出附件、`GET /tasks/:id/attachments/:filename` 下载单个附件；Task 新增 `attachments?: TaskAttachment[]` 字段；ClientNode claim 后自动下载附件到 inputDir 并在 prompt 中告知 Agent | [CHANGED] | Server, ClientNode, Dashboard |
 | 2026-03-01 | 日志聚合消息边界修正：`plan`/`default` 不再触发 `flushStreamBuffers()`，仅 `tool_call`/`tool_call_update` 触发（真正的阶段切换）；进度上报增加 3s 节流 + 流式粗略状态（Responding.../Thinking...）；ClientNode 新增自动重连（指数退避 2s→30s）；Dashboard 渲染前合并相邻同类型日志条目（text/thinking/prompt 直接拼接，tool_call 组换行拼接） | [CHANGED] | ClientNode, Dashboard |
 | 2026-02-28 | ProgressDTO.progress 语义变更：不再表示百分比，固定为 0（仅触发状态机转换），实际状态通过 message 描述；IPC 新增 `task.cancel` 命令；DispatchAcpClient 日志聚合：text/thinking/prompt token 流聚合为完整消息后再记录；新增 ProgressCallback 回调（纯状态描述）；任务 workDir 隔离 | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-02-28 | Worker 通信方式明确为 CLI 调用；CLI 新增 `dispatch worker` 命令组（progress/complete/fail/status/log/heartbeat）；Manager 职责收窄为 Node 分发顾问 | [CHANGED] | ClientNode, ClientCLI, Worker |
@@ -39,15 +41,18 @@ Base URL: `http://{host}:{port}/api/v1`
 
 | Method | Path | Description | Request Body | Response |
 |--------|------|-------------|--------------|----------|
-| POST | `/tasks` | 创建任务 | `CreateTaskDTO` | `Task` |
-| GET | `/tasks` | 查询任务列表 | Query: `?status=&tag=&page=&limit=` | `Task[]` |
-| GET | `/tasks/:id` | 获取任务详情 | - | `Task` |
+| POST | `/tasks` | 创建任务（支持附件） | `CreateTaskDTO` (JSON) 或 `multipart: data + files` | `Task` |
+| GET | `/tasks` | 查询活跃任务列表 | Query: `?status=&tag=&page=&limit=` | `Task[]` |
+| GET | `/tasks/archived` | 查询归档任务摘要 [NEW 2026-03-01] | Query: `?tag=&search=&page=&limit=` | `TaskSummary[]` |
+| GET | `/tasks/:id` | 获取任务详情（支持归档回退）| - | `Task` |
 | PATCH | `/tasks/:id` | 更新任务（进度、状态等） | `UpdateTaskDTO` | `Task` |
 | POST | `/tasks/:id/claim` | 申领任务 | `{ clientId, agentId }` | `Task` |
 | POST | `/tasks/:id/release` | 释放任务（Worker 中断时） | `{ clientId, reason }` | `Task` |
 | POST | `/tasks/:id/complete` | 完成任务（需上传产物） | `multipart: CompleteTaskDTO + files` | `Task` |
 | POST | `/tasks/:id/cancel` | 取消任务 | `{ reason? }` | `Task` |
 | DELETE | `/tasks/:id` | 删除任务 | - | `void` |
+| GET | `/tasks/:id/attachments` | 列出任务附件 | - | `TaskAttachment[]` |
+| GET | `/tasks/:id/attachments/:filename` | 下载单个附件 | - | `binary stream` |
 
 #### Task 状态机
 
@@ -58,6 +63,11 @@ created → pending → claimed → in_progress → completed
 ```
 
 #### CreateTaskDTO
+
+支持两种 Content-Type（向后兼容）：
+
+- **`application/json`**：直接传 JSON body（无附件）
+- **`multipart/form-data`** [CHANGED 2026-03-01]：`data` 字段为 JSON 字符串（CreateTaskDTO），`files` 字段为 0-N 个附件文件
 
 ```typescript
 interface CreateTaskDTO {
@@ -86,6 +96,7 @@ interface Task {
     clientId: string;
     agentId: string;
   };
+  attachments?: TaskAttachment[]; // [CHANGED 2026-03-01] 创建时上传的输入文件
   artifacts?: TaskArtifacts;   // [CHANGED 2026-02-28] 任务产物
   metadata?: Record<string, unknown>;
   callbackUrl?: string;
@@ -96,6 +107,38 @@ interface Task {
 }
 
 type TaskStatus = 'pending' | 'claimed' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
+
+// ─── [NEW 2026-03-01] 归档任务摘要 ──────────────────────────────
+//
+// 归档列表端点 GET /tasks/archived 返回的轻量类型。
+// 不包含 description、artifacts、metadata 等重字段。
+// 完整数据通过 GET /tasks/:id 按需加载（Server 端带 1h TTL 缓存）。
+
+interface TaskSummary {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  tags: string[];
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  archived: true;              // 始终为 true，供前端区分
+}
+
+// ─── [CHANGED 2026-03-01] 任务附件（输入文件） ──────────────────
+//
+// 创建任务时可通过 multipart/form-data 上传附件文件。
+// ClientNode claim 后自动下载到 {workDir}/.dispatch/input/{taskId-prefix}/
+// 并在 Agent prompt 中列出文件清单和路径。
+
+interface TaskAttachment {
+  filename: string;            // 服务端存储文件名（sanitized）
+  originalName: string;        // 原始文件名
+  sizeBytes: number;           // 文件大小
+  mimeType: string;            // MIME 类型
+  uploadedAt: string;          // ISO 8601
+}
 
 // ─── [CHANGED 2026-02-28] 任务产物规范 ───────────────────────
 //

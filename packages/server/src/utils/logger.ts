@@ -27,6 +27,12 @@ export class Logger {
     const key = `${prefix}-${this.getDate()}`;
     let stream = this.streams.get(key);
     if (!stream) {
+      for (const [k, s] of this.streams) {
+        if (k.startsWith(prefix + '-') && k !== key) {
+          s.end();
+          this.streams.delete(k);
+        }
+      }
       const filePath = path.join(this.logDir, `${key}.jsonl`);
       stream = fs.createWriteStream(filePath, { flags: 'a' });
       this.streams.set(key, stream);

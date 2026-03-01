@@ -17,6 +17,12 @@ export interface ServerConfig {
     retryCount: number;
     retryDelay: number;
   };
+  attachments: {
+    dir: string;
+    maxFileSizeBytes: number;
+    maxTotalSizeBytes: number;
+    maxFileCount: number;
+  };
   artifacts: {
     dir: string;
     maxZipSizeBytes: number;
@@ -29,6 +35,11 @@ export interface ServerConfig {
     retainDays: number;
     httpLog: boolean;
     auditLog: boolean;
+  };
+  archive: {
+    checkInterval: number;
+    archiveAfterDays: number;
+    cacheMaxAge: number;
   };
 }
 

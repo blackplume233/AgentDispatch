@@ -30,6 +30,7 @@ if (isDirectRun) {
   const { app, context } = await createApp(config);
 
   context.clientService.startHeartbeatCheck();
+  context.archiveScheduler.start();
 
   app.listen({ host: config.host, port: config.port }, (err: Error | null, address: string) => {
     if (err) {
@@ -41,6 +42,8 @@ if (isDirectRun) {
 
   const shutdown = async (): Promise<void> => {
     context.clientService.stopHeartbeatCheck();
+    context.archiveScheduler.stop();
+    context.archiveCache.destroy();
     await context.queue.drain();
     await context.logger.close();
     await app.close();

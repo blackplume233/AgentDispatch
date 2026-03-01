@@ -1,10 +1,23 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import type { Task } from '@agentdispatch/shared';
 import { FileStore } from './file-store.js';
 
 export class TaskStore extends FileStore {
+  private archiveDir: string;
+
   constructor(dataDir: string) {
     super(path.join(dataDir, 'tasks'));
+    this.archiveDir = path.join(dataDir, 'tasks-archive');
+  }
+
+  async init(): Promise<void> {
+    await super.init();
+    await fs.promises.mkdir(this.archiveDir, { recursive: true });
+  }
+
+  getArchiveDir(): string {
+    return this.archiveDir;
   }
 
   private jsonPath(taskId: string): string {
@@ -15,6 +28,14 @@ export class TaskStore extends FileStore {
     return path.join(this.baseDir, `${taskId}.md`);
   }
 
+  private archiveJsonPath(taskId: string): string {
+    return path.join(this.archiveDir, `${taskId}.json`);
+  }
+
+  private archiveMdPath(taskId: string): string {
+    return path.join(this.archiveDir, `${taskId}.md`);
+  }
+
   async save(task: Task): Promise<void> {
     const md = this.taskToMarkdown(task);
     await this.writeJson(this.jsonPath(task.id), task);
@@ -22,15 +43,25 @@ export class TaskStore extends FileStore {
   }
 
   async get(taskId: string): Promise<Task | null> {
-    return this.readJson<Task>(this.jsonPath(taskId));
+    const active = await this.readJson<Task>(this.jsonPath(taskId));
+    if (active) return active;
+    return this.readJson<Task>(this.archiveJsonPath(taskId));
+  }
+
+  async getArchived(taskId: string): Promise<Task | null> {
+    return this.readJson<Task>(this.archiveJsonPath(taskId));
   }
 
   async delete(taskId: string): Promise<boolean> {
     const jsonDeleted = await this.deleteFile(this.jsonPath(taskId));
     await this.deleteFile(this.mdPath(taskId));
-    return jsonDeleted;
+    if (jsonDeleted) return true;
+    const archiveDeleted = await this.deleteFile(this.archiveJsonPath(taskId));
+    await this.deleteFile(this.archiveMdPath(taskId));
+    return archiveDeleted;
   }
 
+  /** Lists only active (non-archived) tasks. */
   async list(): Promise<Task[]> {
     const files = await this.listFiles(this.baseDir, '.json');
     const tasks: Task[] = [];
@@ -39,6 +70,28 @@ export class TaskStore extends FileStore {
       if (task) tasks.push(task);
     }
     return tasks;
+  }
+
+  async moveToArchive(taskId: string): Promise<boolean> {
+    const srcJson = this.jsonPath(taskId);
+    const srcMd = this.mdPath(taskId);
+    const dstJson = this.archiveJsonPath(taskId);
+    const dstMd = this.archiveMdPath(taskId);
+
+    try {
+      await fs.promises.rename(srcJson, dstJson);
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw err;
+    }
+
+    try {
+      await fs.promises.rename(srcMd, dstMd);
+    } catch {
+      // md file is optional — ignore if missing
+    }
+
+    return true;
   }
 
   private taskToMarkdown(task: Task): string {

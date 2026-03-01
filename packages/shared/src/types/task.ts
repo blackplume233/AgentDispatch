@@ -18,6 +18,14 @@ export interface TaskResultJson {
   metrics?: Record<string, number>;
 }
 
+export interface TaskAttachment {
+  filename: string;
+  originalName: string;
+  sizeBytes: number;
+  mimeType: string;
+  uploadedAt: string;
+}
+
 export interface TaskArtifacts {
   zipFile: string;
   zipSizeBytes: number;
@@ -39,6 +47,7 @@ export interface Task {
     clientId: string;
     agentId: string;
   };
+  attachments?: TaskAttachment[];
   artifacts?: TaskArtifacts;
   metadata?: Record<string, unknown>;
   callbackUrl?: string;
@@ -100,4 +109,34 @@ export interface ArtifactFileEntry {
   path: string;
   size: number;
   isText: boolean;
+}
+
+// --- Task Archive Types ---
+
+export const TERMINAL_TASK_STATUSES: readonly TaskStatus[] = ['completed', 'failed', 'cancelled'];
+
+export interface TaskSummary {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  tags: string[];
+  priority: TaskPriority;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  archived: true;
+}
+
+export function toTaskSummary(task: Task): TaskSummary {
+  return {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    tags: task.tags,
+    priority: task.priority,
+    createdAt: task.createdAt,
+    updatedAt: task.updatedAt,
+    completedAt: task.completedAt,
+    archived: true,
+  };
 }

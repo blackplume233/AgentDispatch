@@ -30,7 +30,7 @@ export class AcpController {
     // Reserved for future use (e.g. passing client context to agents)
   }
 
-  async launchAgent(agentConfig: AgentConfig, task: Task, outputDir?: string): Promise<void> {
+  async launchAgent(agentConfig: AgentConfig, task: Task, outputDir?: string, inputDir?: string): Promise<void> {
     const agentProcess = new AgentProcess(agentConfig, {
       onExit: (code, signal) => {
         this.processes.delete(agentConfig.id);
@@ -70,7 +70,7 @@ export class AcpController {
 
     this.events.onProgress(agentConfig.id, task.id, 'Initializing agent...');
 
-    void this.runAcpSession(agentConfig, task, connection, acpClient, outputDir).catch((err) => {
+    void this.runAcpSession(agentConfig, task, connection, acpClient, outputDir, inputDir).catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
       this.events.onAgentError(agentConfig.id, `ACP session error: ${msg}`);
     });
@@ -82,6 +82,7 @@ export class AcpController {
     connection: ClientSideConnection,
     acpClient: DispatchAcpClient,
     outputDir?: string,
+    inputDir?: string,
   ): Promise<void> {
     try {
       const caps = agentConfig.acpCapabilities;
@@ -114,7 +115,7 @@ export class AcpController {
         throw sessionErr;
       }
 
-      const promptText = this.buildTaskPrompt(task, outputDir);
+      const promptText = this.buildTaskPrompt(task, outputDir, inputDir);
 
       acpClient.flushLogs();
 
@@ -137,7 +138,7 @@ export class AcpController {
     }
   }
 
-  private buildTaskPrompt(task: Task, outputDir?: string): string {
+  private buildTaskPrompt(task: Task, outputDir?: string, inputDir?: string): string {
     const parts = [`Task: ${task.title}`];
     if (task.description) {
       parts.push(`\nDescription:\n${task.description}`);
@@ -147,6 +148,12 @@ export class AcpController {
     }
     if (task.metadata) {
       parts.push(`\nMetadata: ${JSON.stringify(task.metadata)}`);
+    }
+    if (inputDir && task.attachments && task.attachments.length > 0) {
+      const fileList = task.attachments
+        .map((a) => `  - ${a.filename} (${(a.sizeBytes / 1024 / 1024).toFixed(1)} MB)`)
+        .join('\n');
+      parts.push(`\nInput files directory:\n  ${inputDir}\nThe following files have been provided as task attachments:\n${fileList}\nRead these files as needed to complete the task.`);
     }
     if (outputDir) {
       parts.push(`\nIMPORTANT — Artifact output directory:\nWrite ALL output files (results, reports, generated assets, etc.) to this directory:\n  ${outputDir}\nDo NOT write output files to the current working directory or other locations. Files outside the output directory will NOT be collected as task artifacts.`);

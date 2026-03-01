@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/api/client";
-import type { Task, CreateTaskInput } from "@/types";
+import type { Task, TaskSummary, CreateTaskInput } from "@/types";
 
 export function useTasks(): ReturnType<typeof useQuery<Task[]>> {
   return useQuery({
@@ -18,10 +18,19 @@ export function useTask(id: string): ReturnType<typeof useQuery<Task>> {
   });
 }
 
-export function useCreateTask(): ReturnType<typeof useMutation<Task, Error, CreateTaskInput>> {
+export function useArchivedTasks(): ReturnType<typeof useQuery<TaskSummary[]>> {
+  return useQuery({
+    queryKey: ["tasks", "archived"],
+    queryFn: () => api.tasks.listArchived(),
+    refetchInterval: 60000,
+  });
+}
+
+export function useCreateTask(): ReturnType<typeof useMutation<Task, Error, { input: CreateTaskInput; files?: File[] }>> {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateTaskInput) => api.tasks.create(input),
+    mutationFn: ({ input, files }: { input: CreateTaskInput; files?: File[] }) =>
+      api.tasks.create(input, files),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["tasks"] });
     },

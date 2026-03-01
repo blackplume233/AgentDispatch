@@ -2,7 +2,7 @@ import type React from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { Plus, Search, ListTodo, Kanban, TableProperties } from "lucide-react";
+import { Plus, Search, ListTodo, Kanban, TableProperties, Archive, ChevronDown, ChevronRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -12,8 +12,8 @@ import { StatusBadge, PriorityBadge } from "@/components/common/status-badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
 import { CreateTaskDialog } from "@/components/CreateTaskDialog";
-import { useTasks } from "@/hooks/use-tasks";
-import type { Task, TaskStatus } from "@/types";
+import { useTasks, useArchivedTasks } from "@/hooks/use-tasks";
+import type { Task, TaskSummary, TaskStatus } from "@/types";
 
 const STATUS_FILTERS = ["all", "pending", "claimed", "in_progress", "completed", "failed", "cancelled"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -29,10 +29,12 @@ const KANBAN_COLUMNS: { status: TaskStatus; label: string }[] = [
 export function TasksPage(): React.ReactElement {
   const { t } = useTranslation();
   const { data: tasks, isLoading, error } = useTasks();
+  const { data: archivedTasks } = useArchivedTasks();
   const [showCreate, setShowCreate] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [view, setView] = useState<ViewMode>("kanban");
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   const counts = useMemo(() => {
     const list = tasks ?? [];
@@ -189,6 +191,52 @@ export function TasksPage(): React.ReactElement {
         <TaskTable tasks={filtered} />
       )}
 
+      {/* Archived Tasks */}
+      {archivedTasks && archivedTasks.length > 0 && (
+        <section>
+          <button
+            type="button"
+            className="flex items-center gap-2 mb-3 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => setArchiveOpen((prev) => !prev)}
+          >
+            {archiveOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            <Archive className="h-4 w-4" />
+            {t("tasks.archived")}
+            <Badge variant="secondary" className="ml-1 text-[10px] py-0 h-5 font-normal">
+              {archivedTasks.length}
+            </Badge>
+          </button>
+          {archiveOpen && (
+            view === "table" ? (
+              <ArchivedTable tasks={archivedTasks} />
+            ) : (
+              <div className="space-y-2">
+                {archivedTasks.map((task) => (
+                  <Link key={task.id} to={`/tasks/${task.id}`}>
+                    <Card className="cursor-pointer transition-shadow hover:shadow-md opacity-70 hover:opacity-100">
+                      <CardContent className="flex items-center gap-3 p-3">
+                        <StatusBadge status={task.status} />
+                        <span className="text-sm font-medium">{task.title}</span>
+                        <div className="ml-auto flex items-center gap-2">
+                          {task.tags.slice(0, 2).map((tag) => (
+                            <Badge key={tag} variant="secondary" className="font-normal text-xs">{tag}</Badge>
+                          ))}
+                          {task.completedAt && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {new Date(task.completedAt).toLocaleDateString()}
+                            </span>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            )
+          )}
+        </section>
+      )}
+
       {showCreate && <CreateTaskDialog onClose={() => setShowCreate(false)} />}
     </div>
   );
@@ -228,6 +276,47 @@ function KanbanColumn({ label, tasks }: { label: string; tasks: Task[] }): React
           <p className="py-4 text-center text-xs text-muted-foreground/60">{t("common.noData")}</p>
         )}
       </div>
+    </div>
+  );
+}
+
+function ArchivedTable({ tasks }: { tasks: TaskSummary[] }): React.ReactElement {
+  return (
+    <div className="rounded-lg border opacity-80">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Title</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Priority</TableHead>
+            <TableHead>Tags</TableHead>
+            <TableHead>Completed</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {tasks.map((task) => (
+            <TableRow key={task.id} className="cursor-pointer">
+              <TableCell>
+                <Link to={`/tasks/${task.id}`} className="font-medium hover:underline">
+                  {task.title}
+                </Link>
+              </TableCell>
+              <TableCell><StatusBadge status={task.status} /></TableCell>
+              <TableCell><PriorityBadge priority={task.priority} /></TableCell>
+              <TableCell>
+                <div className="flex flex-wrap gap-1">
+                  {task.tags.map((tag) => (
+                    <Badge key={tag} variant="secondary" className="font-normal text-xs">{tag}</Badge>
+                  ))}
+                </div>
+              </TableCell>
+              <TableCell className="text-muted-foreground text-xs">
+                {task.completedAt ? new Date(task.completedAt).toLocaleString() : "—"}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }

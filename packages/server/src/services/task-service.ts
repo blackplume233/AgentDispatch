@@ -2,6 +2,8 @@ import { v4 as uuidv4 } from 'uuid';
 import type {
   Task,
   TaskStatus,
+  TaskSummary,
+  TaskAttachment,
   CreateTaskDTO,
   UpdateTaskDTO,
   ClaimTaskDTO,
@@ -18,14 +20,24 @@ import {
 } from '@agentdispatch/shared';
 import type { OperationQueue } from '../queue/operation-queue.js';
 import type { TaskStore } from '../store/task-store.js';
+import type { ArchiveIndex, ArchiveListFilters } from '../store/archive-index.js';
+import type { ArchiveCache } from '../store/archive-cache.js';
 import type { Logger } from '../utils/logger.js';
 
 export class TaskService {
+  private archiveIndex: ArchiveIndex | null = null;
+  private archiveCache: ArchiveCache | null = null;
+
   constructor(
     private store: TaskStore,
     private queue: OperationQueue,
     private logger: Logger,
   ) {}
+
+  setArchive(index: ArchiveIndex, cache: ArchiveCache): void {
+    this.archiveIndex = index;
+    this.archiveCache = cache;
+  }
 
   async createTask(dto: CreateTaskDTO): Promise<Task> {
     if (!dto.title || typeof dto.title !== 'string') {
@@ -62,10 +74,20 @@ export class TaskService {
 
   async getTask(taskId: string): Promise<Task> {
     const task = await this.store.get(taskId);
-    if (!task) {
-      throw new NotFoundError(ErrorCode.TASK_NOT_FOUND, `Task ${taskId} not found`);
+    if (task) return task;
+
+    if (this.archiveCache && this.archiveIndex?.has(taskId)) {
+      const cached = this.archiveCache.get(taskId);
+      if (cached) return cached;
+
+      const archived = await this.store.getArchived(taskId);
+      if (archived) {
+        this.archiveCache.set(taskId, archived);
+        return archived;
+      }
     }
-    return task;
+
+    throw new NotFoundError(ErrorCode.TASK_NOT_FOUND, `Task ${taskId} not found`);
   }
 
   async listTasks(filters?: { status?: TaskStatus; tag?: string; page?: number; limit?: number }): Promise<Task[]> {
@@ -94,6 +116,24 @@ export class TaskService {
     const updated: Task = {
       ...task,
       ...dto,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.queue.enqueue({
+      type: 'task.update',
+      execute: async () => {
+        await this.store.save(updated);
+      },
+    });
+
+    return updated;
+  }
+
+  async setAttachments(taskId: string, attachments: TaskAttachment[]): Promise<Task> {
+    const task = await this.getTask(taskId);
+    const updated: Task = {
+      ...task,
+      attachments,
       updatedAt: new Date().toISOString(),
     };
 
@@ -245,9 +285,16 @@ export class TaskService {
     return updated;
   }
 
+  async listArchivedTasks(filters?: ArchiveListFilters): Promise<TaskSummary[]> {
+    if (!this.archiveIndex) return [];
+    return this.archiveIndex.listSummaries(filters);
+  }
+
   async deleteTask(taskId: string): Promise<void> {
     const task = await this.store.get(taskId);
-    if (!task) {
+    const inArchiveIndex = this.archiveIndex?.has(taskId) ?? false;
+
+    if (!task && !inArchiveIndex) {
       throw new NotFoundError(ErrorCode.TASK_NOT_FOUND, `Task ${taskId} not found`);
     }
 
@@ -255,6 +302,10 @@ export class TaskService {
       type: 'task.delete',
       execute: async () => {
         await this.store.delete(taskId);
+        if (inArchiveIndex) {
+          await this.archiveIndex?.removeSummary(taskId);
+          this.archiveCache?.remove(taskId);
+        }
       },
     });
 
