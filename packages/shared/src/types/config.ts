@@ -41,7 +41,15 @@ export interface ServerConfig {
     archiveAfterDays: number;
     cacheMaxAge: number;
   };
+  auth: {
+    enabled: boolean;
+    users: Array<{ username: string; password: string }>;
+    tokens: Array<string | { token: string; role?: AuthTokenRole }>;
+    sessionTtl: number;
+  };
 }
+
+export type AuthTokenRole = 'admin' | 'client' | 'operator';
 
 export interface DispatchRule {
   taskTags: string[];
@@ -73,6 +81,7 @@ export interface AgentConfig {
 export interface ClientConfig {
   name: string;
   serverUrl: string;
+  token?: string;
   tags: string[];
   dispatchMode: DispatchMode;
   polling: {

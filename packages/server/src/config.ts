@@ -34,6 +34,12 @@ const DEFAULT_CONFIG: ServerConfig = {
     archiveAfterDays: 1,
     cacheMaxAge: 3600000,
   },
+  auth: {
+    enabled: false,
+    users: [],
+    tokens: [],
+    sessionTtl: 86400000,
+  },
 };
 
 export function loadConfig(configPath?: string): ServerConfig {
@@ -105,6 +111,13 @@ export function loadConfig(configPath?: string): ServerConfig {
           fc.archive?.cacheMaxAge ??
           DEFAULT_CONFIG.archive.cacheMaxAge,
       ),
+    },
+    auth: {
+      enabled:
+        (process.env['DISPATCH_AUTH_ENABLED'] ?? String(fc.auth?.enabled ?? DEFAULT_CONFIG.auth.enabled)) === 'true',
+      users: fc.auth?.users ?? DEFAULT_CONFIG.auth.users,
+      tokens: fc.auth?.tokens ?? DEFAULT_CONFIG.auth.tokens,
+      sessionTtl: fc.auth?.sessionTtl ?? DEFAULT_CONFIG.auth.sessionTtl,
     },
   };
 }

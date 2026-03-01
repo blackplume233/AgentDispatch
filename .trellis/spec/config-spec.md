@@ -24,6 +24,9 @@
 | 2026-02-28 | ServerConfig 新增 `artifacts` 配置段；Server 数据目录新增 `artifacts/{task-id}/` 存储结构 | [CHANGED] | Server |
 | 2026-02-28 | ClientConfig 新增 `dispatchMode` 字段；Manager Agent 从必须改为按模式可选；DispatchRule 新增 `priority`；autoDispatch 新增 `fallbackAction` | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-02-28 | AgentConfig 明确 ACP SDK 集成字段；新增 `acpCapabilities` 配置段；`command` 字段说明更新为 ACP Agent 启动命令 | [CHANGED] | ClientNode |
+| 2026-03-01 | auth.tokens 支持角色：`string` 默认 client 角色，`{ token, role }` 指定角色（admin/client/operator）；operator 角色禁止 claim/release/progress/complete/cancel/patch 等 worker 操作；新增 `FORBIDDEN` 错误码 (403) | [CHANGED] | Server |
+| 2026-03-01 | ServerConfig 新增 `auth` 配置段（enabled/users/tokens/sessionTtl）；新增 `DISPATCH_AUTH_ENABLED` 环境变量；ClientConfig 新增 `token` 可选字段；新增 auth 路由（login/logout/me）；Server 增加 Fastify onRequest auth hook | [CHANGED] | Server, ClientNode, Dashboard |
+| 2026-03-01 | 新增 `DISPATCH_TOKEN`、`DISPATCH_IPC_PATH` 环境变量；Worker 临时 Token 由 ClientNode 签发并注入子进程环境 | [CHANGED] | ClientNode, CLI |
 | 2026-02-28 | 初始化全部配置定义 | NEW | 全部模块 |
 
 ---
@@ -42,6 +45,9 @@
 | `DISPATCH_ARCHIVE_CHECK_INTERVAL` | number | `3600000` | 归档调度器检查间隔（ms） |
 | `DISPATCH_ARCHIVE_AFTER_DAYS` | number | `1` | 终态任务隔 N 天后归档（0=立即） |
 | `DISPATCH_ARCHIVE_CACHE_MAX_AGE` | number | `3600000` | 归档详情 TTL 缓存时长（ms） |
+| `DISPATCH_AUTH_ENABLED` | string | `false` | 是否启用 Token 鉴权（"true"/"false"） |
+| `DISPATCH_TOKEN` | string | — | [NEW 2026-03-01] CLI/Worker 鉴权 Token；CLI 通过此变量或 `--token` 传递；ClientNode 为 Worker 子进程自动注入临时 Token |
+| `DISPATCH_IPC_PATH` | string | — | [NEW 2026-03-01] ClientNode 为 Worker 子进程注入的 IPC socket/pipe 路径，Worker 通过此变量连接 CLI → IPC |
 
 **IPC 路径平台默认值** [CHANGED 2026-02-28]：
 
@@ -109,6 +115,23 @@ interface ServerConfig {
     archiveAfterDays: number;      // 终态任务隔 N 天归档，默认 1
     cacheMaxAge: number;           // 归档详情 TTL 缓存（ms），默认 3600000（1h）
   };
+
+  // [CHANGED 2026-03-01] Token 鉴权
+  auth: {
+    enabled: boolean;              // 是否启用鉴权，默认 false（关闭时所有请求放行）
+    users: Array<{                 // Dashboard 登录用户列表
+      username: string;
+      password: string;            // 明文密码（简易版）
+    }>;
+    tokens: Array<                 // 静态 API Token 列表，支持两种格式
+      | string                     //   纯字符串 → 默认 client 角色（完全权限）
+      | {
+          token: string;
+          role?: 'admin' | 'client' | 'operator';  // 默认 'client'
+        }
+    >;
+    sessionTtl: number;            // Session 过期时间（ms），默认 86400000（24h）
+  };
 }
 ```
 
@@ -149,6 +172,7 @@ interface ServerConfig {
 interface ClientConfig {
   name: string;                    // Client 名称（唯一标识）
   serverUrl: string;               // Server 地址
+  token?: string;                  // [CHANGED 2026-03-01] 可选 API Token，启用鉴权时必填
   tags: string[];                  // Client 能力标签
 
   // [CHANGED 2026-02-28] 任务分发模式

@@ -275,6 +275,58 @@ class ValidationError extends AppError { /* 400 */ }
 - 所有异步操作使用 `try/catch`，禁止裸 Promise
 - Agent 进程异常必须捕获并触发任务释放逻辑
 
+### Gotcha: Fastify 框架错误不是 AppError [NEW 2026-03-01]
+
+> **⚠️ Fastify 抛出的框架错误（如 JSON 解析失败）是 `FastifyError`，不是 `AppError`。** 如果 error handler 只检查 `instanceof AppError`，框架错误会走到 catch-all 分支返回 500。
+
+**症状**：发送非法 JSON body 或空 body + `Content-Type: application/json` 时，Server 返回 `500 INTERNAL_ERROR` 而非 `400`。
+
+**Fix**: error handler 必须在 `AppError` 判断之后、catch-all 之前，检查错误对象的 `statusCode` 属性：
+
+```typescript
+app.setErrorHandler(async (error, _request, reply) => {
+  if (error instanceof AppError) {
+    return reply.code(error.statusCode).send({ ... });
+  }
+
+  // Fastify framework errors (JSON parse, validation, etc.)
+  const errObj = error as Record<string, unknown>;
+  if (typeof errObj['statusCode'] === 'number' && errObj['statusCode'] < 500) {
+    return reply.code(errObj['statusCode']).send({
+      error: { code: 'VALIDATION_ERROR', message: error.message },
+      ...
+    });
+  }
+
+  // True 500 errors
+  return reply.code(500).send({ ... });
+});
+```
+
+### Gotcha: Fastify preHandler 不在 body 解析失败时运行 [NEW 2026-03-01]
+
+> **⚠️ Fastify 生命周期中 body parsing 在 `preValidation` 阶段（步骤 3），`preHandler` 在步骤 4。** 如果 body parsing 失败（如非法 JSON），请求直接进入 error handler，**跳过了 preHandler**。
+
+**影响**：如果 RBAC 角色检查（`requireRole`）注册在 `preHandler`，当客户端发送了畸形 body 时，Server 返回 JSON 解析错误而不是 403 FORBIDDEN。
+
+**缓解**：确保 error handler 对 `statusCode < 500` 的框架错误返回正确状态码（见上方 Fix）。认证 hook 注册在 `onRequest`（步骤 1），不受此影响。
+
+### Gotcha: DELETE + Content-Type: application/json + 空 body [NEW 2026-03-01]
+
+> **⚠️ 某些 HTTP 客户端（包括 PowerShell 的 `Invoke-WebRequest`）对 DELETE 请求也带 `Content-Type: application/json` 头但不发送 body。** Fastify 会尝试解析空 body 为 JSON 并抛出解析错误。
+
+**Fix**: 注册 `preParsing` hook，当 `content-length` 为 `0` 时清除 `content-type` 头：
+
+```typescript
+app.addHook('preParsing', async (request, _reply, payload) => {
+  if (request.headers['content-type']?.includes('application/json') &&
+      request.headers['content-length'] === '0') {
+    request.headers['content-type'] = undefined as unknown as string;
+  }
+  return payload;
+});
+```
+
 ---
 
 ## Logging & Audit Trail（全量操作日志）
@@ -808,6 +860,28 @@ CLI 包的 `console.log` 是面向用户的正常输出渠道，不应触发 `no
   rules: { 'no-console': 'off' },
 },
 ```
+
+### Gotcha: PowerShell curl.exe 的 JSON 转义 [NEW 2026-03-01]
+
+> **⚠️ 在 Windows PowerShell 中使用 `curl.exe` 发送 JSON body 时，反斜杠 `\"` 转义会被 PowerShell 二次处理，导致 Server 收到非法 JSON。**
+
+**症状**：QA 测试时 `POST /tasks` 等接口持续返回 `500`（JSON parse error），但相同请求在 bash 中正常。
+
+**正确做法**：Windows 环境下使用 `Invoke-WebRequest` / `Invoke-RestMethod` 替代 `curl.exe`：
+
+```powershell
+# 正确
+$body = @{ title = "test"; description = "body" } | ConvertTo-Json
+Invoke-RestMethod -Uri "http://localhost:9800/api/v1/tasks" `
+  -Method POST -ContentType "application/json" `
+  -Headers @{ Authorization = "Bearer $token" } `
+  -Body $body
+
+# 错误 — curl.exe 在 PowerShell 中 JSON 转义不可靠
+curl.exe -X POST -H "Content-Type: application/json" -d "{\"title\":\"test\"}" ...
+```
+
+**适用场景**：QA 脚本、测试自动化、CI pipeline 中在 Windows runner 上运行的 HTTP 请求。
 
 ### Service 层模式
 

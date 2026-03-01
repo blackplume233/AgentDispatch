@@ -191,4 +191,13 @@ export const en = {
     high: "High",
     urgent: "Urgent",
   },
+  auth: {
+    loginTitle: "Sign In",
+    loginDescription: "Enter your credentials to access the dashboard.",
+    username: "Username",
+    password: "Password",
+    login: "Sign In",
+    loggingIn: "Signing in...",
+    logout: "Sign Out",
+  },
 } as const;

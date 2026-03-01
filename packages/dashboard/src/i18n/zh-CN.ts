@@ -191,4 +191,13 @@ export const zhCN = {
     high: "高",
     urgent: "紧急",
   },
+  auth: {
+    loginTitle: "登录",
+    loginDescription: "输入您的凭据以访问控制面板。",
+    username: "用户名",
+    password: "密码",
+    login: "登录",
+    loggingIn: "登录中...",
+    logout: "退出登录",
+  },
 } as const;

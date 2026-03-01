@@ -44,6 +44,7 @@ if (isDirectRun) {
     context.clientService.stopHeartbeatCheck();
     context.archiveScheduler.stop();
     context.archiveCache.destroy();
+    context.authManager?.destroy();
     await context.queue.drain();
     await context.logger.close();
     await app.close();

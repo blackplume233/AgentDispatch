@@ -30,7 +30,19 @@ export class AcpController {
     // Reserved for future use (e.g. passing client context to agents)
   }
 
-  async launchAgent(agentConfig: AgentConfig, task: Task, outputDir?: string, inputDir?: string): Promise<void> {
+  async launchAgent(
+    agentConfig: AgentConfig,
+    task: Task,
+    outputDir?: string,
+    inputDir?: string,
+    workerToken?: string,
+  ): Promise<void> {
+    const extraEnv: Record<string, string> = {};
+    if (workerToken) {
+      extraEnv['DISPATCH_TOKEN'] = workerToken;
+      extraEnv['DISPATCH_IPC_PATH'] = this._nodeConfig.ipc.path;
+    }
+
     const agentProcess = new AgentProcess(agentConfig, {
       onExit: (code, signal) => {
         this.processes.delete(agentConfig.id);
@@ -39,7 +51,7 @@ export class AcpController {
       onStderr: (data) => {
         this.events.onAgentError(agentConfig.id, data);
       },
-    });
+    }, extraEnv);
 
     const { stdin, stdout } = agentProcess.start();
     this.processes.set(agentConfig.id, agentProcess);

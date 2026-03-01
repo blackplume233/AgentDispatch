@@ -26,11 +26,12 @@ program
   .name('dispatch')
   .description('AgentDispatch CLI')
   .version(VERSION)
-  .option('--ipc <path>', 'IPC socket path', getDefaultSocketPath());
+  .option('--ipc <path>', 'IPC socket path', getDefaultSocketPath())
+  .option('--token <token>', 'Auth token for IPC commands', process.env['DISPATCH_TOKEN']);
 
 function getClient(): IPCClient {
-  const opts = program.opts() as { ipc: string };
-  return new IPCClient(opts.ipc);
+  const opts = program.opts() as { ipc: string; token?: string };
+  return new IPCClient(opts.ipc, 10000, opts.token);
 }
 
 registerNodeCommands(program, getClient);

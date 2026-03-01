@@ -14,6 +14,8 @@ import { ArtifactService } from './services/artifact-service.js';
 import { AttachmentService } from './services/attachment-service.js';
 import { ArchiveScheduler } from './services/archive-scheduler.js';
 import { Logger } from './utils/logger.js';
+import { AuthManager, registerAuthHook } from './middleware/auth.js';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import { registerClientRoutes } from './routes/clients.js';
 
@@ -27,6 +29,7 @@ export interface AppContext {
   logStore: LogStore;
   logger: Logger;
   queue: OperationQueue;
+  authManager: AuthManager | null;
 }
 
 export async function createApp(
@@ -122,6 +125,17 @@ export async function createApp(
       });
     }
 
+    const errObj = error as Record<string, unknown>;
+    if (typeof errObj['statusCode'] === 'number' && errObj['statusCode'] < 500) {
+      return reply.code(errObj['statusCode']).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: error instanceof Error ? error.message : 'Bad request',
+        },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     logger.error('Unhandled error', {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
@@ -135,21 +149,39 @@ export async function createApp(
     });
   });
 
+  // Auth middleware (must be registered before routes)
+  let authManager: AuthManager | null = null;
+  if (config.auth?.enabled) {
+    authManager = new AuthManager(config.auth);
+    authManager.start();
+    registerAuthHook(app, authManager);
+  }
+
+  // Tolerate empty body with application/json Content-Type (common in DELETE requests)
+  app.addHook('preParsing', async (request, _reply, payload) => {
+    if (request.headers['content-type']?.includes('application/json') &&
+        request.headers['content-length'] === '0') {
+      request.headers['content-type'] = undefined as unknown as string;
+    }
+    return payload;
+  });
+
   // Multipart support for artifact uploads and attachments
   await app.register(multipart, {
     limits: { fileSize: config.attachments.maxFileSizeBytes },
   });
 
   // Register routes
+  registerAuthRoutes(app, authManager);
   registerTaskRoutes(app, taskService, artifactService, attachmentService, logStore);
   registerClientRoutes(app, clientService, logStore);
 
   // Health check
-  app.get('/health', async () => ({ status: 'ok', version: '0.0.1' }));
+  app.get('/health', async () => ({ status: 'ok', version: '0.0.1', authEnabled: config.auth?.enabled ?? false }));
 
   const context: AppContext = {
     taskService, clientService, artifactService, attachmentService,
-    archiveScheduler, archiveCache, logStore, logger, queue,
+    archiveScheduler, archiveCache, logStore, logger, queue, authManager,
   };
 
   return { app, context };

@@ -24,20 +24,26 @@ export interface CompleteTaskOptions {
 
 export class ServerHttpClient {
   private baseUrl: string;
+  private token?: string;
 
-  constructor(serverUrl: string) {
+  constructor(serverUrl: string, token?: string) {
     this.baseUrl = serverUrl.replace(/\/$/, '') + '/api/v1';
+    this.token = token;
   }
 
   getBaseUrl(): string {
     return this.baseUrl;
   }
 
+  private authHeaders(): Record<string, string> {
+    return this.token ? { Authorization: `Bearer ${this.token}` } : {};
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${this.baseUrl}${path}`;
     const options: RequestInit = {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
     };
     if (body !== undefined) {
       options.body = JSON.stringify(body);
@@ -125,7 +131,7 @@ export class ServerHttpClient {
 
   async downloadAttachment(taskId: string, filename: string, destPath: string): Promise<void> {
     const url = `${this.baseUrl}/tasks/${taskId}/attachments/${encodeURIComponent(filename)}`;
-    const response = await fetch(url);
+    const response = await fetch(url, { headers: this.authHeaders() });
     if (!response.ok) {
       throw new Error(`Failed to download attachment "${filename}": HTTP ${response.status}`);
     }
@@ -161,7 +167,7 @@ export class ServerHttpClient {
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+      headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, ...this.authHeaders() },
       body,
     });
 

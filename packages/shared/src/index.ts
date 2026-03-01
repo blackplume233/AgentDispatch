@@ -44,6 +44,7 @@ export type {
   AgentConfig,
   DispatchRule,
   ErrorResponse,
+  AuthTokenRole,
 } from './types/config.js';
 
 // Errors

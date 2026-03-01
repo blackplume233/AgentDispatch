@@ -147,7 +147,52 @@ Manager Agent 通过 ACP 与 ClientNode Core 通信，职责**仅限于**：
 > Worker 被 ACP 启动后，通过 CLI 命令（直接 shell exec 或 ACP terminal/create）与 Node 交互进行任务操作。
 > ACP 提供标准化 Agent 能力（文件读写、终端执行、权限控制）；CLI 提供 AgentDispatch 特有的结构化操作。
 
-### 6. IPC 通信 (CLI ↔ ClientNode)
+### 6. 多层鉴权架构 [NEW 2026-03-01]
+
+**决策**：三层 Token 鉴权，从外到内递进
+
+```
+层级 1: Server HTTP API — 静态 Token + RBAC
+层级 2: Client-Node IPC — Token 透传 + 本地校验
+层级 3: Worker 临时 Token — 进程级隔离
+```
+
+**层级 1: Server HTTP Token + RBAC**
+
+所有 Server API 通过 `Authorization: Bearer <token>` 鉴权。Token 分三种角色：
+
+| 角色 | 允许的操作 | 典型使用方 |
+|------|-----------|-----------|
+| `admin` | 全部操作 | 运维管理 |
+| `client` | 全部操作（等同 admin） | ClientNode |
+| `operator` | 可读、可创建/删除任务，**不可** claim/release/progress/complete/cancel | Dashboard 用户、外部集成 |
+
+认证 hook 注册在 `onRequest`（生命周期最早），角色检查注册在 `preHandler`。
+
+**层级 2: IPC Token 透传**
+
+CLI 通过 `--token` 参数或 `DISPATCH_TOKEN` 环境变量携带 Token，IPC 消息中增加 `token` 字段。ClientNode 对 Worker-only 命令（`worker.*`）进行鉴权：
+
+1. 先检查本地 Worker Token 池（O(1) 哈希查找）
+2. 未命中 → 调 Server `/auth/me` 远程校验（结果缓存 60s）
+3. `operator` 角色被拒绝 Worker 命令
+
+**层级 3: Worker 临时 Token**
+
+ClientNode 为每个 Worker 进程发放 `wt_<uuid>` 格式的临时 Token，注入 `DISPATCH_TOKEN` 环境变量。
+
+生命周期：
+- **创建**：`dispatchPendingTasks` 启动 Agent 时签发
+- **注入**：通过 `DISPATCH_TOKEN` + `DISPATCH_IPC_PATH` 环境变量传递给子进程
+- **验证**：ClientNode 本地 Map 查找，不需要远程调用
+- **撤销**：任务完成/失败/取消时回收，`stop()` 时批量清除
+
+安全特性：
+- Token 仅在 ClientNode 内存中，不持久化
+- 每个 Token 绑定 `(agentId, taskId)`，不可跨进程复用
+- 进程退出后 Token 自动失效
+
+### 7. IPC 通信 (CLI ↔ ClientNode)
 
 **决策**：Named Pipe (Windows) / Unix Domain Socket (Linux/macOS)
 
@@ -162,7 +207,7 @@ Manager Agent 通过 ACP 与 ClientNode Core 通信，职责**仅限于**：
 - IPC 路径由配置自动适配平台（见 `config-spec.md` § IPC 路径平台默认值）
 - 代码中**不做** `if (win32) { ... } else { ... }` 分支处理 IPC 连接逻辑，仅在路径生成时区分平台
 
-### 6. 全量操作日志落盘
+### 8. 全量操作日志落盘
 
 **决策**：Server 和 Client 所有操作无遗漏记录到日志文件
 

@@ -1,12 +1,14 @@
 import type React from "react";
 import { useTranslation } from "react-i18next";
-import { Activity, Wifi, WifiOff, Moon, Sun } from "lucide-react";
+import { Activity, Wifi, WifiOff, Moon, Sun, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTheme } from "@/hooks/use-theme";
+import { useAuth } from "@/contexts/auth-context";
 
 export function TopBar(): React.ReactElement {
   const { t } = useTranslation();
   const { theme, toggle } = useTheme();
+  const { authEnabled, username, logout } = useAuth();
 
   return (
     <header className="flex h-14 items-center justify-between border-b bg-background px-6">
@@ -19,6 +21,14 @@ export function TopBar(): React.ReactElement {
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
         <ServerStatus />
+        {authEnabled && (
+          <div className="flex items-center gap-2">
+            {username && <span className="font-medium text-foreground">{username}</span>}
+            <Button variant="ghost" size="icon" onClick={() => void logout()} className="h-8 w-8" title={t("auth.logout")}>
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
     </header>
   );

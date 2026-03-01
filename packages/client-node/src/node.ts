@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import AdmZip from 'adm-zip';
 import { v4 as uuid } from 'uuid';
-import type { Client, ClientConfig, Task, AgentInfo, InteractionLogEntry, ClientLogEntry } from '@agentdispatch/shared';
+import type { Client, ClientConfig, Task, AgentInfo, InteractionLogEntry, ClientLogEntry, AuthTokenRole } from '@agentdispatch/shared';
 import { ServerHttpClient } from './http/server-client.js';
 import { IPCServer } from './ipc/ipc-server.js';
 import { TaskPoller } from './polling/task-poller.js';
@@ -11,10 +11,33 @@ import { Dispatcher } from './dispatch/dispatcher.js';
 import { AcpController } from './acp/acp-controller.js';
 import { WorkerManager } from './agents/worker-manager.js';
 
+const WORKER_ONLY_COMMANDS = new Set([
+  'worker.progress',
+  'worker.complete',
+  'worker.fail',
+  'worker.status',
+  'worker.log',
+  'worker.heartbeat',
+  'task.assign',
+  'task.release',
+  'task.cancel',
+]);
+
+interface TokenCacheEntry {
+  role: AuthTokenRole;
+  expiresAt: number;
+}
+
+interface WorkerToken {
+  agentId: string;
+  taskId: string;
+}
+
 export class ClientNode {
   private static readonly HEARTBEAT_FAIL_THRESHOLD = 3;
   private static readonly RECONNECT_BASE_DELAY = 2000;
   private static readonly RECONNECT_MAX_DELAY = 30000;
+  private static readonly TOKEN_CACHE_TTL = 60_000;
 
   private config: ClientConfig;
   private httpClient: ServerHttpClient;
@@ -33,11 +56,14 @@ export class ClientNode {
   private consecutiveHeartbeatFailures = 0;
   private reconnecting = false;
   private stopped = false;
+  private ipcTokenCache = new Map<string, TokenCacheEntry>();
+  private workerTokens = new Map<string, WorkerToken>();
+  private workerTokensByAgent = new Map<string, string>();
 
   constructor(config: ClientConfig) {
     this.config = config;
-    this.httpClient = new ServerHttpClient(config.serverUrl);
-    this.ipcServer = new IPCServer(config.ipc.path, (cmd, payload) => this.handleIPC(cmd, payload));
+    this.httpClient = new ServerHttpClient(config.serverUrl, config.token);
+    this.ipcServer = new IPCServer(config.ipc.path, (cmd, payload, token) => this.handleIPC(cmd, payload, token));
     this.poller = new TaskPoller(this.httpClient, config.polling.interval, (tasks) => {
       this.pendingTasks = tasks;
       void this.dispatchPendingTasks();
@@ -142,6 +168,8 @@ export class ClientNode {
     this.stopped = true;
     this.poller.stop();
     this.stopHeartbeat();
+    this.workerTokens.clear();
+    this.workerTokensByAgent.clear();
     await this.acpController.stopAll();
     await this.ipcServer.stop();
     this.flushClientLogs();
@@ -246,7 +274,10 @@ export class ClientNode {
               this.taskInputDirs.set(task.id, inputDir);
             }
 
-            await this.acpController.launchAgent(agentCfg, task, outputDir, inputDir);
+            const workerToken = this.config.token
+              ? this.issueWorkerToken(decision.agentId, task.id)
+              : undefined;
+            await this.acpController.launchAgent(agentCfg, task, outputDir, inputDir, workerToken);
             this.log(`Launched agent ${decision.agentId} for task ${task.id.slice(0, 8)} (outputDir=${outputDir}${inputDir ? `, inputDir=${inputDir}` : ''})`);
           }
         } catch (err: unknown) {
@@ -261,6 +292,8 @@ export class ClientNode {
   }
 
   private async handleTaskCompletion(agentId: string, taskId: string, stopReason: string): Promise<void> {
+    this.revokeWorkerToken(agentId);
+
     const worker = this.workerManager.getWorkerState(agentId);
     if (worker) {
       worker.status = 'idle';
@@ -323,6 +356,7 @@ export class ClientNode {
     this.recordClientLog('info', 'task.cancelling', `Cancelling task ${taskId}: ${reason}`, { taskId, agentId: worker.agentId });
 
     this.acpController.stopAgent(worker.agentId);
+    this.revokeWorkerToken(worker.agentId);
 
     worker.status = 'idle';
     worker.currentTaskId = undefined;
@@ -593,7 +627,67 @@ export class ClientNode {
     process.stdout.write(`[${ts}] [ClientNode] ${msg}\n`);
   }
 
-  private async handleIPC(command: string, payload: unknown): Promise<unknown> {
+  private issueWorkerToken(agentId: string, taskId: string): string {
+    const token = `wt_${uuid()}`;
+    this.workerTokens.set(token, { agentId, taskId });
+    this.workerTokensByAgent.set(agentId, token);
+    this.log(`Issued worker token for agent ${agentId} task ${taskId.slice(0, 8)}`);
+    return token;
+  }
+
+  private revokeWorkerToken(agentId: string): void {
+    const token = this.workerTokensByAgent.get(agentId);
+    if (token) {
+      this.workerTokens.delete(token);
+      this.workerTokensByAgent.delete(agentId);
+    }
+  }
+
+  private async validateIPCToken(token: string): Promise<AuthTokenRole> {
+    const cached = this.ipcTokenCache.get(token);
+    if (cached && Date.now() < cached.expiresAt) return cached.role;
+
+    const url = `${this.config.serverUrl.replace(/\/$/, '')}/api/v1/auth/me`;
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) {
+      this.ipcTokenCache.delete(token);
+      throw Object.assign(new Error('Invalid or expired token'), { code: 'UNAUTHORIZED' });
+    }
+    const data = (await response.json()) as { role?: AuthTokenRole };
+    const role = data.role ?? 'operator';
+    this.ipcTokenCache.set(token, { role, expiresAt: Date.now() + ClientNode.TOKEN_CACHE_TTL });
+    return role;
+  }
+
+  private async enforceIPCAuth(command: string, token?: string): Promise<void> {
+    if (!this.config.token) return;
+    if (!WORKER_ONLY_COMMANDS.has(command)) return;
+
+    if (!token) {
+      throw Object.assign(
+        new Error('Worker commands require a token (use --token or DISPATCH_TOKEN)'),
+        { code: 'UNAUTHORIZED' },
+      );
+    }
+
+    // Check local worker tokens first (issued to spawned Worker processes)
+    if (this.workerTokens.has(token)) return;
+
+    // Fall back to Server-side validation
+    const role = await this.validateIPCToken(token);
+    if (role !== 'admin' && role !== 'client') {
+      throw Object.assign(
+        new Error(`Role '${role}' is not allowed for worker commands`),
+        { code: 'FORBIDDEN' },
+      );
+    }
+  }
+
+  private async handleIPC(command: string, payload: unknown, token?: string): Promise<unknown> {
+    await this.enforceIPCAuth(command, token);
+
     switch (command) {
       case 'node.status':
         return this.getStatus();

@@ -1,15 +1,29 @@
 import type { Task, TaskSummary, TaskAttachment, Client, CreateTaskInput, InteractionLogEntry, ClientLogEntry, ArtifactFileEntry } from "@/types";
 
 const BASE = "/api/v1";
+const TOKEN_KEY = "dispatch_token";
+
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem(TOKEN_KEY);
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function handle401(res: Response): void {
+  if (res.status === 401) {
+    localStorage.removeItem(TOKEN_KEY);
+    window.location.href = "/login";
+  }
+}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const options: RequestInit = {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
   };
   if (body) options.body = JSON.stringify(body);
   const res = await fetch(`${BASE}${path}`, options);
   if (res.status === 204) return undefined as T;
+  handle401(res);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
     throw new Error((err as { error?: { message?: string } }).error?.message ?? `HTTP ${res.status}`);
@@ -31,8 +45,9 @@ export const api = {
         for (const file of files) {
           formData.append("files", file, file.name);
         }
-        return fetch(`${BASE}/tasks`, { method: "POST", body: formData })
+        return fetch(`${BASE}/tasks`, { method: "POST", headers: authHeaders(), body: formData })
           .then(async (res) => {
+            handle401(res);
             if (!res.ok) {
               const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
               throw new Error((err as { error?: { message?: string } }).error?.message ?? `HTTP ${res.status}`);
@@ -79,7 +94,8 @@ export const api = {
     listFiles: (taskId: string): Promise<ArtifactFileEntry[]> =>
       request<ArtifactFileEntry[]>("GET", `/tasks/${taskId}/artifacts/files`),
     getFileContent: async (taskId: string, filePath: string): Promise<string> => {
-      const res = await fetch(`${BASE}/tasks/${taskId}/artifacts/files/${filePath}`);
+      const res = await fetch(`${BASE}/tasks/${taskId}/artifacts/files/${filePath}`, { headers: authHeaders() });
+      handle401(res);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.text();
     },

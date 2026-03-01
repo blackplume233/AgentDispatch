@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import type { IPCMessage } from '@agentdispatch/shared';
 
-export type IPCHandler = (command: string, payload: unknown) => Promise<unknown>;
+export type IPCHandler = (command: string, payload: unknown, token?: string) => Promise<unknown>;
 
 export class IPCServer {
   private server: net.Server | null = null;
@@ -57,7 +57,7 @@ export class IPCServer {
     }
 
     try {
-      const result = await this.handler(msg.command, msg.payload);
+      const result = await this.handler(msg.command, msg.payload, msg.token);
       const response: IPCMessage = {
         id: msg.id,
         type: 'response',

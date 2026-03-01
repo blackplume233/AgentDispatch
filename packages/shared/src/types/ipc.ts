@@ -4,6 +4,7 @@ export interface IPCMessage {
   command: string;
   payload?: unknown;
   error?: IPCError;
+  token?: string;
 }
 
 export interface IPCError {

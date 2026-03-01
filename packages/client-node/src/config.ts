@@ -48,6 +48,7 @@ export function loadClientConfig(configPath?: string): ClientConfig {
   return {
     name,
     serverUrl: fileConfig.serverUrl ?? DEFAULT_CONFIG.serverUrl,
+    token: fileConfig.token,
     tags: fileConfig.tags ?? DEFAULT_CONFIG.tags,
     dispatchMode: fileConfig.dispatchMode ?? DEFAULT_CONFIG.dispatchMode,
     polling: { interval: fileConfig.polling?.interval ?? DEFAULT_CONFIG.polling.interval },

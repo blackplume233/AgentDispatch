@@ -16,6 +16,7 @@ import type {
   AppendTaskLogsDTO,
 } from '@agentdispatch/shared';
 import { ValidationError, ErrorCode } from '@agentdispatch/shared';
+import { requireRole } from '../middleware/auth.js';
 
 export function registerTaskRoutes(
   app: FastifyInstance,
@@ -102,33 +103,56 @@ export function registerTaskRoutes(
     return taskService.getTask(request.params.id);
   });
 
-  app.patch<{ Params: { id: string }; Body: UpdateTaskDTO }>('/api/v1/tasks/:id', async (request) => {
-    return taskService.updateTask(request.params.id, request.body);
-  });
+  const workerOnly = requireRole('admin', 'client');
+
+  app.patch<{ Params: { id: string }; Body: UpdateTaskDTO }>(
+    '/api/v1/tasks/:id',
+    { preHandler: [workerOnly] },
+    async (request) => {
+      return taskService.updateTask(request.params.id, request.body);
+    },
+  );
 
   app.delete<{ Params: { id: string } }>('/api/v1/tasks/:id', async (request, reply) => {
     await taskService.deleteTask(request.params.id);
     return reply.code(204).send();
   });
 
-  app.post<{ Params: { id: string }; Body: ClaimTaskDTO }>('/api/v1/tasks/:id/claim', async (request) => {
-    return taskService.claimTask(request.params.id, request.body);
-  });
+  app.post<{ Params: { id: string }; Body: ClaimTaskDTO }>(
+    '/api/v1/tasks/:id/claim',
+    { preHandler: [workerOnly] },
+    async (request) => {
+      return taskService.claimTask(request.params.id, request.body);
+    },
+  );
 
-  app.post<{ Params: { id: string }; Body: ReleaseTaskDTO }>('/api/v1/tasks/:id/release', async (request) => {
-    return taskService.releaseTask(request.params.id, request.body);
-  });
+  app.post<{ Params: { id: string }; Body: ReleaseTaskDTO }>(
+    '/api/v1/tasks/:id/release',
+    { preHandler: [workerOnly] },
+    async (request) => {
+      return taskService.releaseTask(request.params.id, request.body);
+    },
+  );
 
-  app.post<{ Params: { id: string }; Body: ProgressDTO }>('/api/v1/tasks/:id/progress', async (request) => {
-    return taskService.reportProgress(request.params.id, request.body);
-  });
+  app.post<{ Params: { id: string }; Body: ProgressDTO }>(
+    '/api/v1/tasks/:id/progress',
+    { preHandler: [workerOnly] },
+    async (request) => {
+      return taskService.reportProgress(request.params.id, request.body);
+    },
+  );
 
-  app.post<{ Params: { id: string }; Body: CancelTaskDTO }>('/api/v1/tasks/:id/cancel', async (request) => {
-    return taskService.cancelTask(request.params.id, request.body);
-  });
+  app.post<{ Params: { id: string }; Body: CancelTaskDTO }>(
+    '/api/v1/tasks/:id/cancel',
+    { preHandler: [workerOnly] },
+    async (request) => {
+      return taskService.cancelTask(request.params.id, request.body);
+    },
+  );
 
   app.post<{ Params: { id: string } }>(
     '/api/v1/tasks/:id/complete',
+    { preHandler: [workerOnly] },
     async (request, reply) => {
       const parts = request.parts();
       let zipBuffer: Buffer | null = null;
@@ -170,6 +194,7 @@ export function registerTaskRoutes(
 
   app.post<{ Params: { id: string }; Body: AppendTaskLogsDTO }>(
     '/api/v1/tasks/:id/logs',
+    { preHandler: [workerOnly] },
     async (request, reply) => {
       await taskService.getTask(request.params.id);
       await logStore.appendTaskLogs(request.params.id, request.body.entries);

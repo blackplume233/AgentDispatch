@@ -8,17 +8,19 @@ function generateId(): string {
 export class IPCClient {
   private socketPath: string;
   private timeout: number;
+  private token?: string;
 
-  constructor(socketPath: string, timeout = 10000) {
+  constructor(socketPath: string, timeout = 10000, token?: string) {
     this.socketPath = socketPath;
     this.timeout = timeout;
+    this.token = token;
   }
 
   async send(command: string, payload?: unknown): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const msgId = generateId();
       const socket = net.createConnection(this.socketPath, () => {
-        const msg: IPCMessage = { id: msgId, type: 'request', command, payload };
+        const msg: IPCMessage = { id: msgId, type: 'request', command, payload, token: this.token };
         socket.write(JSON.stringify(msg) + '\n');
       });
 
