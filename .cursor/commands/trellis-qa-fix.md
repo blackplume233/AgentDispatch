@@ -37,6 +37,26 @@
 
 **不创建新目录**，直接复用 qa-alpha 的环境状态和 Server。
 
+### Dashboard（必选）
+
+QA Fix 环境**必须同时启动 Dashboard 前端**，确保每次修复都覆盖前后端验证。
+
+- **Dashboard Dev Server**: `pnpm --filter @agentdispatch/dashboard dev`（端口 3000，proxy → Server 9800）
+- Dashboard 进程 PID 记录在 `env-state.json` 的 `dashboardPid` 字段
+- Phase 0 环境检查时，除了检查 Server 存活，还必须检查 Dashboard 存活（`curl http://localhost:3000`）
+- Dashboard 未运行时自动启动；修复后 rebuild 如涉及 dashboard 包，自动重启 Dashboard
+
+### Worker / ClientNode（必选）
+
+QA Fix 环境**必须有一个运行中的 ClientNode 进程**，负责自动认领 pending 任务。
+
+- **启动脚本**: `node .trellis/qa-fix/start-worker.mjs`
+- **配置文件**: `.trellis/qa-fix/client.config.json`（name=`qa-worker-node`，polling 3s，heartbeat 10s，9 条 dispatch rules）
+- **Agent Stub**: `.trellis/qa-fix/worker-stub.mjs`（占位 Agent，5s 后正常退出）
+- Worker PID 记录在 `env-state.json` 的 `workerPid` 字段
+- Worker 崩溃/退出时任务会自动释放回 pending（已实现的心跳超时机制）
+- Phase 0 环境检查时，必须检查 Worker 存活；未运行时自动启动
+
 ---
 
 ## 执行流程
@@ -60,8 +80,35 @@ cat .trellis/qa-alpha/env-state.json
 curl -s -o /dev/null -w "%{http_code}" http://localhost:<port>/api/v1/tasks
 ```
 
-- 返回 200 → 直接进入 Phase 1
+- 返回 200 → 继续 Step 0.2b
 - 否则 → 重启 Server（参照 qa-alpha Phase 3 restart 流程）
+
+#### Step 0.2b: 验证 Dashboard 存活
+
+```bash
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3000
+```
+
+- 返回 200 → 继续 Step 0.3
+- 否则 → 启动 Dashboard：`pnpm --filter @agentdispatch/dashboard dev`（后台运行），记录 PID 到 `env-state.json` 的 `dashboardPid` 字段，轮询 `http://localhost:3000` 直到返回 200（最多 30s）
+
+#### Step 0.2c: 验证 Worker (ClientNode) 存活
+
+QA Fix 环境**必须有一个正在运行的 ClientNode 进程**，负责轮询 Server 中的 pending 任务并自动认领。
+
+1. 检查 `env-state.json` 中的 `workerPid` 是否存在且对应进程存活
+2. 若不存活 → 启动 Worker：
+
+```bash
+node .trellis/qa-fix/start-worker.mjs &
+```
+
+3. 等待 Worker 注册成功（日志中出现 `Registered as`），记录 PID 到 `env-state.json` 的 `workerPid` 字段
+4. 验证 Worker 已注册：`curl -s http://localhost:9800/api/v1/clients` 中应包含 `qa-worker-node`
+
+- Worker 配置文件：`.trellis/qa-fix/client.config.json`
+- Worker 启动脚本：`.trellis/qa-fix/start-worker.mjs`
+- Worker Stub（占位 Agent）：`.trellis/qa-fix/worker-stub.mjs`
 
 #### Step 0.3: 检查代码是否需要重建
 
@@ -151,9 +198,31 @@ pnpm build
 2. 重启 Server（qa-alpha Phase 1.4 流程）
 3. 更新 env-state.json：新 PID、新 buildHash、新 buildTimestamp
 
+#### Step 3.2b: 重启 Dashboard（如需要）
+
+如果变更涉及 `packages/dashboard/` 或 `packages/shared/`（共享类型），Vite HMR 通常自动生效。若 Dashboard 进程已不存在，重新启动：
+
+```bash
+pnpm --filter @agentdispatch/dashboard dev
+```
+
+更新 `env-state.json` 的 `dashboardPid`。
+
+#### Step 3.2c: 重启 Worker / ClientNode
+
+Server 重启后，旧的 ClientNode 连接会断开。必须重启 Worker：
+
+1. 停止旧 Worker 进程：`kill $WORKER_PID`
+2. 删除旧的 Client 注册（可选，Server 重启后已清空）
+3. 启动新 Worker：`node .trellis/qa-fix/start-worker.mjs &`
+4. 等待日志中出现 `Registered as` 和 `Ready — waiting for tasks...`
+5. 更新 `env-state.json` 的 `workerPid`
+
 #### Step 3.3: 等待就绪
 
 轮询 `curl http://localhost:$PORT/api/v1/tasks` 直到返回 200，最多等待 30s。
+同时确认 Dashboard 可访问（`curl http://localhost:3000` 返回 200）。
+确认 Worker 已注册（`curl http://localhost:9800/api/v1/clients` 包含 `qa-worker-node`）。
 
 ---
 
@@ -162,6 +231,17 @@ pnpm build
 #### Step 4.1: 重现原始操作
 
 用相同的请求重新执行，验证问题已消失。
+
+#### Step 4.1b: Dashboard 前端验证
+
+对涉及前端展示的修复，**必须通过浏览器验证 Dashboard**：
+
+1. 使用 browser-use subagent 访问 `http://localhost:3000`
+2. 导航到与修复相关的页面（任务列表、任务详情、客户端列表等）
+3. 截图确认 UI 渲染正确、数据显示准确
+4. 若修复涉及 API 响应结构变更，重点检查 Dashboard 是否正确消费新字段
+
+即使修复仅涉及后端代码，也应快速检查 Dashboard 无报错（控制台无 JS 错误、页面可正常加载）。
 
 #### Step 4.2: 回归检查
 
@@ -185,6 +265,7 @@ pnpm test:changed
 - `<filepath>` — <change summary>
 
 **验证结果**：PASS / FAIL
+**Dashboard 验证**：PASS / FAIL / N/A（截图或描述）
 **回归测试**：PASS / FAIL（N 个测试）
 **耗时**：<elapsed>
 ```
@@ -228,6 +309,7 @@ pnpm test:changed
 | 维度 | `/qa-alpha` | `/qa-fix` |
 |------|------------|-----------|
 | 共享环境 | ✓ 相同目录和 Server | ✓ 完全复用 |
+| Dashboard | 可选 | **必选**（始终启动） |
 | 触发方式 | 执行预设/临时测试场景 | 接收用户描述的 Bug |
 | 代码修改 | ✗ 不修改源码 | ✓ 直接修改源码修复 |
 | 重装时机 | 手动 restart 或检测到 HEAD 变化 | 每次修复后**自动** rebuild+restart |
@@ -241,7 +323,10 @@ pnpm test:changed
 ## 注意事项
 
 1. **共享 Server** — 与 qa-alpha 共用同一个 Server 实例，修改代码 rebuild 后 Server 会重启，正在运行的 qa-alpha 测试会中断。
-2. **最小化修改** — 每次只修复一个问题，避免大范围重构。
-3. **自动重装** — 修复后无需手动 restart，Phase 3 自动处理。
-4. **修复失败回退** — 若 build 失败，使用 `git checkout -- <files>` 还原，报告无法修复。
-5. **Issue 追踪** — 验证失败时自动创建 Issue，确保问题有记录。
+2. **Dashboard 必选** — QA Fix 环境**必须包含 Dashboard**。环境初始化和每次修复验证都要确保 Dashboard 可用。即使修复仅涉及后端，也要快速检查 Dashboard 无异常。
+3. **Worker 必选** — QA Fix 环境**必须有运行中的 ClientNode**。自动认领由 ClientNode 负责（客户端架构），不是 Server 端功能。Server 重启后必须同步重启 Worker。
+4. **最小化修改** — 每次只修复一个问题，避免大范围重构。
+5. **自动重装** — 修复后无需手动 restart，Phase 3 自动处理（含 Worker 重启）。
+6. **修复失败回退** — 若 build 失败，使用 `git checkout -- <files>` 还原，报告无法修复。
+7. **Issue 追踪** — 验证失败时自动创建 Issue，确保问题有记录。
+7. **Dashboard 端口** — Dashboard Dev Server 固定 3000 端口，通过 Vite proxy 转发 `/api` 到 Server 9800。若端口冲突，检查并终止占用进程。

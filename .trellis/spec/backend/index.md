@@ -1040,6 +1040,85 @@ archive: {
 - `GET /tasks/:id` 先查活跃 → 查缓存 → 从磁盘加载归档
 - `DELETE /tasks/:id` 对活跃和归档任务都有效
 
+### 心跳超时与任务释放 [NEW 2026-03-01]
+
+> **⚠️ ClientNode 注册后必须保持持续心跳。心跳中断后，Server 自动将该 Client 认领的所有任务释放回 pending。**
+
+**Problem**: Worker 进程崩溃、网络断开或 ClientNode 意外退出后，其已认领（claimed/in_progress）的任务会成为"孤儿任务"，永远无法被其他 Worker 处理。
+
+**Solution**: Server 端定时检查心跳，自动释放离线 Client 的任务。
+
+```typescript
+// ClientService.checkHeartbeats() — 每 checkInterval(15s) 执行一次
+private async checkHeartbeats(): Promise<void> {
+  const now = Date.now();
+  const offlineClientIds: string[] = [];
+
+  // 1. 标记超时 Client 为 offline
+  for (const client of this.clients.values()) {
+    if (client.status === 'online') {
+      const elapsed = now - new Date(client.lastHeartbeat).getTime();
+      if (elapsed > this.heartbeatTimeout) {
+        client.status = 'offline';
+      }
+    }
+    if (client.status === 'offline') {
+      offlineClientIds.push(client.id);
+    }
+  }
+
+  // 2. 释放所有 offline Client 持有的任务
+  if (offlineClientIds.length > 0) {
+    await this.releaseTasksForOfflineClients(offlineClientIds);
+  }
+}
+
+// 扫描所有 claimed/in_progress 任务，释放属于 offline Client 的
+private async releaseTasksForOfflineClients(offlineClientIds: string[]): Promise<void> {
+  const tasks = await this.taskService.listTasks();
+  const offlineSet = new Set(offlineClientIds);
+  for (const task of tasks) {
+    if ((task.status === 'claimed' || task.status === 'in_progress')
+        && task.claimedBy?.clientId
+        && offlineSet.has(task.claimedBy.clientId)) {
+      await this.taskService.releaseTask(task.id, {
+        clientId: task.claimedBy.clientId,
+        reason: 'Client heartbeat timeout',
+      });
+    }
+  }
+}
+```
+
+**关键设计点**：
+
+| 决策 | 原因 |
+|------|------|
+| 同时扫描 `claimed` 和 `in_progress` | 竞态窗口：任务可能在 Client 被标记 offline 的瞬间从 claimed 转为 in_progress |
+| 每次扫描**所有** offline Client | 防止遗漏：上一轮已 offline 的 Client 可能仍持有任务（时序问题） |
+| `TaskService` 通过 setter 注入到 `ClientService` | 避免循环依赖（两个 Service 互相引用） |
+| `VALID_TASK_TRANSITIONS` 允许 `in_progress → pending` | 必须在 shared 层修改，否则释放会被状态机拒绝 |
+
+**Anti-pattern**：
+
+```typescript
+// Don't — 只在 Client 首次 timeout 时释放
+if (client.status === 'online' && elapsed > timeout) {
+  client.status = 'offline';
+  await releaseTasksForClient(client.id); // ← 只执行一次
+}
+// 问题：在标记 offline 的同一毫秒内完成 claim 的任务永远不会被释放
+```
+
+**Gotcha — 依赖注入顺序**：`ClientService` 需要 `TaskService` 来释放任务，但 `TaskService` 也依赖 `ClientService`（验证 claim 请求中的 clientId）。使用 setter 注入打破循环：
+
+```typescript
+// app.ts — 正确的初始化顺序
+const taskService = new TaskService(taskStore, queue);
+const clientService = new ClientService(clientStore, queue, config);
+clientService.setTaskService(taskService);  // 打破循环依赖
+```
+
 ### 防御性编程
 
 - 所有外部输入必须校验（使用 zod 或类似库）

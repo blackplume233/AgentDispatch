@@ -21,6 +21,7 @@
 
 | 日期 | 变更 | 类型 | 影响范围 |
 |------|------|------|----------|
+| 2026-03-01 | 心跳超时任务释放：Task 状态机新增 `claimed → pending` 和 `in_progress → pending` 转换；Server `checkHeartbeats()` 自动释放 offline Client 持有的所有任务；新增 HeartbeatDTO 定义和完整时序文档 | [CHANGED] | Server, ClientNode |
 | 2026-03-01 | 新增 `GET /tasks/:id/stream` SSE 端点，实时推送任务状态变化和交互日志；支持 `interval`、`logs` 查询参数；终态自动关闭连接 | [CHANGED] | Server |
 | 2026-03-01 | 任务归档机制：终态任务隔天自动归档到 `tasks-archive/`；新增 `GET /tasks/archived` 返回 `TaskSummary[]`；`GET /tasks/:id` 支持归档回退；归档详情 1h TTL 缓存；Logger 跨天切换 stream；`ServerConfig.archive` 配置块 | [CHANGED] | Server, Dashboard |
 | 2026-03-01 | Task 附件功能：`POST /tasks` 支持 multipart/form-data 上传附件（向后兼容 JSON）；新增 `GET /tasks/:id/attachments` 列出附件、`GET /tasks/:id/attachments/:filename` 下载单个附件；Task 新增 `attachments?: TaskAttachment[]` 字段；ClientNode claim 后自动下载附件到 inputDir 并在 prompt 中告知 Agent | [CHANGED] | Server, ClientNode, Dashboard |
@@ -167,9 +168,25 @@ IPC 请求带 token
 
 ```
 created → pending → claimed → in_progress → completed
-                                          → failed → pending (可重新申领)
-                  → cancelled
+                  ↑         ↑             → failed → pending (可重新申领)
+                  │         │             → pending (Worker 下线释放) [CHANGED 2026-03-01]
+                  │         └─ pending (Worker 下线释放) [CHANGED 2026-03-01]
+                  └─────────────────────── cancelled
 ```
+
+**完整合法转换表** [CHANGED 2026-03-01]：
+
+| 当前状态 | 可转换为 |
+|----------|---------|
+| `pending` | `claimed`, `cancelled` |
+| `claimed` | `in_progress`, `pending`, `cancelled` |
+| `in_progress` | `completed`, `failed`, `cancelled`, `pending` |
+| `completed` | *(终态)* |
+| `failed` | `pending` |
+| `cancelled` | *(终态)* |
+
+> **`claimed → pending` 和 `in_progress → pending`** [NEW 2026-03-01]：
+> 当 ClientNode 心跳超时被标记为 offline 后，Server 自动将该 Client 认领的所有 `claimed` 和 `in_progress` 任务释放回 `pending`，等待其他 Worker 重新认领。详见下方「心跳超时任务释放」。
 
 #### CreateTaskDTO
 
@@ -352,6 +369,80 @@ interface AgentInfo {
   capabilities: string[];
 }
 ```
+
+#### HeartbeatDTO
+
+```typescript
+interface HeartbeatDTO {
+  agents: {
+    id: string;
+    status: 'idle' | 'busy' | 'offline' | 'error';
+    currentTaskId?: string;
+  }[];
+}
+```
+
+#### 心跳超时与任务释放 [NEW 2026-03-01]
+
+> **⚠️ 核心机制：ClientNode 注册后必须保持持续心跳，否则 Server 自动释放其所有任务。**
+
+**时序流程**：
+
+```
+ClientNode                          Server
+    │                                 │
+    │── POST /clients/register ──────→│  注册成功，status=online
+    │                                 │
+    │── POST /clients/:id/heartbeat ─→│  心跳续约，更新 lastHeartbeat
+    │   (每 heartbeat.interval ms)    │
+    │                                 │
+    │── POST /tasks/:id/claim ───────→│  认领任务
+    │                                 │
+    │   ...心跳持续...                │
+    │                                 │
+    │   ✗ 心跳中断（网络断开/进程崩溃）│
+    │                                 │
+    │                                 │── [定时检查] now - lastHeartbeat > timeout
+    │                                 │   → 标记 client status = 'offline'
+    │                                 │   → 遍历所有 claimed/in_progress 任务
+    │                                 │   → 属于该 client 的任务 → status = 'pending'
+    │                                 │   → 清空 claimedBy 字段
+    │                                 │
+    │                                 │  任务回到 pending 池，等待其他 Worker 认领
+```
+
+**Server 端行为**（`ClientService.checkHeartbeats()`）：
+
+| 步骤 | 动作 | 说明 |
+|------|------|------|
+| 1 | 定时轮询（默认 `heartbeat.checkInterval` = 15s） | 由 `setInterval` 驱动 |
+| 2 | 遍历所有 Client，检查 `now - lastHeartbeat > timeout` | `timeout` 默认 `heartbeat.timeout` = 60s |
+| 3 | 超时的 Client → `status = 'offline'` | 标记为离线 |
+| 4 | 收集所有 offline Client ID（含新发现 + 之前已离线的） | 防止遗漏：某些任务可能在 Client 刚被标记 offline 后的短窗口内完成 claim |
+| 5 | 遍历所有 `claimed` / `in_progress` 任务 | 通过 `TaskService.listTasks()` 获取 |
+| 6 | 若 `task.claimedBy.clientId ∈ offlineClientIds` → 释放任务 | 调用 `TaskService.releaseTask()` → status = `pending` |
+
+**关键设计决策**：
+
+- **同时扫描 `claimed` 和 `in_progress`**：因为存在竞态窗口——任务可能在 Client 被标记 offline 的同一时刻从 claimed 转为 in_progress，若只扫 claimed 则 in_progress 任务会成为孤儿
+- **每次扫描所有 offline Client（而非仅新超时的）**：防止因时序问题导致的遗漏
+- **释放时清空 `claimedBy`**：任务回到 pending 池后无 owner，任何 Worker 都可认领
+- **自动认领由 ClientNode 驱动**：Server 不主动分派任务，而是由 ClientNode 通过 `TaskPoller` 轮询 pending 任务并 claim
+
+**配置参数**（`ServerConfig.heartbeat`）：
+
+```typescript
+heartbeat: {
+  timeout: 60000,        // 心跳超时阈值 (ms)，超过此时间无心跳视为离线
+  checkInterval: 15000,  // Server 主动检查心跳的间隔 (ms)
+}
+```
+
+**ClientNode 端行为**：
+
+- `ClientNode` 内置心跳定时器（`heartbeat.interval`，默认 30s）
+- 每次心跳上报所有 Agent 的当前状态（idle/busy/currentTaskId）
+- 连续心跳失败 3 次触发自动重连（指数退避 2s → 30s），详见 backend/index.md「ClientNode 自动重连」
 
 ### 1.3 Task Status Stream (SSE) [NEW 2026-03-01]
 

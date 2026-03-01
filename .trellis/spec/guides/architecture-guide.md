@@ -310,13 +310,24 @@ ClientNode 为每个 Worker 进程发放 `wt_<uuid>` 格式的临时 Token，注
    → 释放任务（状态回 pending）或启动新 Worker 重试
 ```
 
-### 轮询与心跳
+### 轮询与心跳 [CHANGED 2026-03-01]
 
 ```
-ClientNode ──[heartbeat: 30s]──→ Server
-ClientNode ──[polling: 10s]───→ Server /tasks?status=pending
+ClientNode ──[heartbeat: 30s]──→ Server          心跳续约，携带 Agent 状态
+ClientNode ──[polling: 10s]───→ Server /tasks     轮询 pending 任务 + 自动认领
 Server ────[check: 15s]──────→ 标记超时 Client 为 offline
+                              → 释放其所有 claimed/in_progress 任务回 pending
+                              → 任务回到 pending 池，等待其他 Worker 认领
 ```
+
+**心跳超时任务释放**：
+
+1. Client 心跳中断 > `heartbeat.timeout`（默认 60s）→ Server 标记 `status = 'offline'`
+2. Server 遍历所有 `claimed`/`in_progress` 任务，属于 offline Client 的 → 释放回 `pending`
+3. 其他在线 ClientNode 的 `TaskPoller` 下一次轮询时自动认领这些任务
+4. 整个恢复过程无需人工干预
+
+**自动认领由 ClientNode 驱动（客户端架构）**：Server 不主动分派任务。ClientNode 通过 `TaskPoller` 定期轮询 pending 任务，`Dispatcher` + `TagMatcher` 根据 dispatch rules 和 agent capabilities 决定是否认领。
 
 ---
 
