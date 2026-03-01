@@ -78,6 +78,15 @@ export class ClientNode {
         this.log(`Agent ${agentId} exited (code=${code}, signal=${signal})`);
         this.workerManager.handleWorkerExit(agentId, code);
         this.recordClientLog('info', 'agent.exited', `Agent ${agentId} exited (code=${code})`, { agentId, code, signal });
+        const worker = this.workerManager.getWorkerState(agentId);
+        if (worker?.currentTaskId) {
+          const taskId = worker.currentTaskId;
+          const reason = code === 0
+            ? 'Agent exited without completing task'
+            : `Agent crashed with exit code ${code}`;
+          this.log(`Releasing task ${taskId}: ${reason}`);
+          void this.handleTaskCompletion(agentId, taskId, 'cancelled');
+        }
       },
       onAgentError: (agentId, error) => {
         this.log(`Agent ${agentId} error: ${error}`);
@@ -294,13 +303,10 @@ export class ClientNode {
   private async handleTaskCompletion(agentId: string, taskId: string, stopReason: string): Promise<void> {
     this.revokeWorkerToken(agentId);
 
-    const worker = this.workerManager.getWorkerState(agentId);
-    if (worker) {
-      worker.status = 'idle';
-      worker.currentTaskId = undefined;
+    if (!this.client) {
+      this.markWorkerIdle(agentId);
+      return;
     }
-
-    if (!this.client) return;
 
     if (stopReason === 'end_turn') {
       try {
@@ -339,10 +345,21 @@ export class ClientNode {
           clientId: this.client.id,
           reason: `Agent stopped: ${stopReason}`,
         });
+        this.log(`Releasing task ${taskId}: ${stopReason}`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         this.log(`Failed to release task ${taskId.slice(0, 8)}: ${msg}`);
       }
+    }
+
+    this.markWorkerIdle(agentId);
+  }
+
+  private markWorkerIdle(agentId: string): void {
+    const worker = this.workerManager.getWorkerState(agentId);
+    if (worker) {
+      worker.status = 'idle';
+      worker.currentTaskId = undefined;
     }
   }
 

@@ -380,6 +380,7 @@ Server ────[check: 15s]──────→ 标记超时 Client 为 off
 2. **产物为空** — 没有真实 Worker 就没有真实产出。空 zip + 假 result.json 能通过服务端验证，但 Dashboard 上展示的是空白内容，用户无法验证端到端流程
 3. **生命周期缺失** — 模拟环境不会出现 Worker 崩溃、心跳超时、任务释放等真实场景，这些恰恰是最容易出 bug 的地方
 4. **状态不一致** — 模拟脚本跟踪的 worker 状态（busy/idle）与 Server 上的 agent 状态是分离的，真实 `WorkerManager` 通过进程退出事件自动同步
+5. **ACP session 悬挂** [NEW 2026-03-01] — 非 ACP 的 placeholder stub（如 `node -e "setTimeout(()=>process.exit(0), 5000)"`）不会响应 ACP `initialize()` 请求。`ClientSideConnection.initialize()` 永远等不到 JSON-RPC 响应，Promise 悬挂。结果：`onTaskCompleted` 永远不触发，worker 状态被腐坏（永远 busy 或假 idle 导致贪婪 claim），单 worker 可能同时持有所有 pending 任务
 
 ### QA 环境启动检查清单
 
@@ -389,9 +390,17 @@ Server ────[check: 15s]──────→ 标记超时 Client 为 off
 - [ ] Server 心跳检测已启动（`clientService.startHeartbeatCheck()`）
 - [ ] ClientNode 是真实 `ClientNode` 实例（非 HTTP 注册 + 外部心跳）
 - [ ] Worker 通过 `AcpController` 启动为子进程（非主进程内模拟）
+- [ ] **Worker 是真实 ACP Agent**（能响应 JSON-RPC `initialize`，非纯 console.log stub）
 - [ ] 进度通过 CLI → IPC 链路上报（非直接 HTTP 调用）
 - [ ] 产物是 Worker 真实生成的文件（非空壳 zip）
 - [ ] Dashboard 连接到同一个 Server 实例
+
+> **⚠️ Stub/Placeholder Agent 的局限** [NEW 2026-03-01]
+>
+> 即使 `onAgentExited` 有防御逻辑在 Agent 进程退出时强制释放任务，stub agent 仍然无法验证：
+> ACP session 建立、进度上报、产物提交、正常 `end_turn` 结束。
+> **所有测试都必须使用真实 ACP Agent**——能正确建立 ACP session、响应 `initialize`、通过 `acp.session.update` 上报进度。
+> Stub 仅可用于验证 ClientNode 本身的防御性逻辑（如 worker 退出后的任务释放），不可用于验证完整业务流程。
 
 ---
 

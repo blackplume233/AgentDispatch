@@ -21,6 +21,7 @@
 
 | 日期 | 变更 | 类型 | 影响范围 |
 |------|------|------|----------|
+| 2026-03-01 | Spec 更新：所有测试必须通过真实 ACP 交互验证；Worker idle 标记必须在任务释放之后（Release-then-Idle）；进程退出时 `onAgentExited` 必须强制释放悬挂任务；stub agent 仅可用于防御逻辑验证 | [CHANGED] | ClientNode, Spec |
 | 2026-03-01 | 心跳超时任务释放：Task 状态机新增 `claimed → pending` 和 `in_progress → pending` 转换；Server `checkHeartbeats()` 自动释放 offline Client 持有的所有任务；新增 HeartbeatDTO 定义和完整时序文档 | [CHANGED] | Server, ClientNode |
 | 2026-03-01 | 新增 `GET /tasks/:id/stream` SSE 端点，实时推送任务状态变化和交互日志；支持 `interval`、`logs` 查询参数；终态自动关闭连接 | [CHANGED] | Server |
 | 2026-03-01 | 任务归档机制：终态任务隔天自动归档到 `tasks-archive/`；新增 `GET /tasks/archived` 返回 `TaskSummary[]`；`GET /tasks/:id` 支持归档回退；归档详情 1h TTL 缓存；Logger 跨天切换 stream；`ServerConfig.archive` 配置块 | [CHANGED] | Server, Dashboard |

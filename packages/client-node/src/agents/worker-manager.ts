@@ -55,8 +55,9 @@ export class WorkerManager {
     const taskId = worker.currentTaskId;
 
     if (exitCode === 0) {
-      worker.status = 'idle';
-      worker.currentTaskId = undefined;
+      if (!taskId) {
+        worker.status = 'idle';
+      }
       worker.restartCount = 0;
       return;
     }

@@ -732,7 +732,7 @@ interface Operation {
 | 集成测试 | `tests/integration/` | API 端到端、文件 I/O |
 | 黑盒测试 | `tests/e2e/` | 完整功能流程 |
 
-### QA 环境禁止模拟 [NEW 2026-02-28]
+### QA 环境禁止模拟 [UPDATED 2026-03-01]
 
 > **⚠️ QA 环境必须使用真实组件跑通完整链路，禁止用脚本替代任何环节。**
 >
@@ -742,6 +742,44 @@ interface Operation {
 这种"模拟环境"能让 API 返回 200，但无法验证 IPC 通信、Worker 生命周期、真实产物生成等关键链路。
 
 **正确做法**：启动真实 `ClientNode` → `AcpController` 启动真实 Worker 子进程 → Worker 通过 CLI → IPC 上报进度 → Worker 生成真实产物提交。
+
+### 所有测试必须通过真实 ACP 交互验证 [NEW 2026-03-01]
+
+> **⚠️ Unit Test / Integration Test / QA Test 中涉及 Worker 交互的测试，Worker 必须是能说 ACP 协议的真实 Agent，不能是 `console.log` + `process.exit` 的 stub。**
+
+**Why**: 非 ACP stub 会导致 `ClientSideConnection.initialize()` 悬挂（永远等不到 JSON-RPC 响应），引发：
+- `onTaskCompleted` 永不触发
+- Worker 状态在 busy/idle 之间不一致
+- 单 Worker 贪婪 claim 所有 pending 任务
+- 测试"通过"但实际上核心链路未被覆盖
+
+**测试分级**:
+
+| 级别 | Worker 要求 | 适用场景 |
+|------|------------|---------|
+| **单元测试** | Mock `AcpController` 和 `ClientSideConnection` 接口 | 测试 `WorkerManager` 状态机逻辑、`TagMatcher` 匹配规则等 |
+| **集成测试** | 最小真实 ACP Agent（响应 `initialize` + 立即 `end_turn`） | 测试 ClientNode claim → dispatch → complete 完整流程 |
+| **QA 测试** | 完整 ACP Agent（建立 session、上报进度、生成产物） | 端到端业务验证 |
+
+**最小 ACP Agent 示例**（用于集成测试）:
+
+```typescript
+// minimal-acp-agent.mjs — 能通过 ACP 握手的最小实现
+import { stdin, stdout } from 'process';
+import { createInterface } from 'readline';
+
+const rl = createInterface({ input: stdin });
+const send = (msg) => stdout.write(JSON.stringify(msg) + '\n');
+
+rl.on('line', (line) => {
+  const msg = JSON.parse(line);
+  if (msg.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '0.1', capabilities: {} } });
+    // 收到 initialize 后立即发送 end_turn
+    send({ jsonrpc: '2.0', method: 'acp.session.update', params: { stopReason: 'end_turn' } });
+  }
+});
+```
 
 ### 测试命名
 
@@ -1117,6 +1155,71 @@ if (client.status === 'online' && elapsed > timeout) {
 const taskService = new TaskService(taskStore, queue);
 const clientService = new ClientService(clientStore, queue, config);
 clientService.setTaskService(taskService);  // 打破循环依赖
+```
+
+### Worker 任务生命周期：idle 标记顺序 [NEW 2026-03-01]
+
+> **⚠️ Worker 只能在任务释放/完成**之后**才能标记为 idle。先标记 idle 再释放任务会导致 poller 在任务释放完成前抢跑认领下一个任务。**
+
+**Problem**: 单个 Worker 同时持有 5 个 `in_progress` 任务，但它只能处理 1 个。
+
+**Root Cause**: `handleTaskCompletion()` 先把 worker.status 设为 `idle`，再异步调用 `releaseTask()`。poller 在 idle 瞬间就 claim 了下一个任务，而上一个任务的 release 还没完成。
+
+**Pattern — Release-then-Idle**:
+
+```typescript
+// Good: release 完成后再标记 idle
+private async handleTaskCompletion(agentId, taskId, stopReason) {
+  // 1. 先处理任务（release 或 complete）
+  if (stopReason === 'end_turn') {
+    await this.completeTask(taskId);
+  } else {
+    await this.releaseTask(taskId);
+  }
+  // 2. 最后才标记 idle
+  this.markWorkerIdle(agentId);
+}
+
+// Bad: idle 在前，release 在后
+private async handleTaskCompletion(agentId, taskId, stopReason) {
+  worker.status = 'idle';           // ← poller 立刻看到 idle
+  worker.currentTaskId = undefined; // ← 抢跑 claim 新任务
+  await this.releaseTask(taskId);   // ← 上一个任务还没释放完
+}
+```
+
+### Worker 进程退出时必须释放任务 [NEW 2026-03-01]
+
+> **⚠️ Agent 进程退出（任何退出码）时，如果仍持有任务，必须由 `onAgentExited` 主动触发释放。不能依赖 ACP session 的 catch 路径——当 Agent 不说 ACP 协议时，ACP connection 会悬挂。**
+
+**Problem**: 非 ACP Agent（如 placeholder stub）退出后，`runAcpSession` 的 `connection.initialize()` 永远等不到响应，catch 块永远不执行，任务永远不释放。
+
+**Solution — 双重保障**:
+
+```typescript
+onAgentExited: (agentId, code, signal) => {
+  this.workerManager.handleWorkerExit(agentId, code);
+  // 防御：进程已退出但 ACP session 可能悬挂
+  const worker = this.workerManager.getWorkerState(agentId);
+  if (worker?.currentTaskId) {
+    void this.handleTaskCompletion(agentId, worker.currentTaskId, 'cancelled');
+  }
+},
+```
+
+**handleWorkerExit(code=0) 不应标记 idle（当有任务时）**:
+
+```typescript
+handleWorkerExit(agentId, exitCode) {
+  if (exitCode === 0) {
+    if (!worker.currentTaskId) {
+      worker.status = 'idle';  // 无任务时才标记 idle
+    }
+    // 有任务时保持 busy，让 handleTaskCompletion 处理
+    return;
+  }
+  // exitCode != 0: 崩溃处理...
+}
 ```
 
 ### 防御性编程

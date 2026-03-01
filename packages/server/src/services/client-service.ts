@@ -161,6 +161,7 @@ export class ClientService {
   private async checkHeartbeats(): Promise<void> {
     const clients = await this.store.list();
     const now = Date.now();
+    const knownClientIds = new Set(clients.map((c) => c.id));
     const offlineClientIds: string[] = [];
 
     for (const client of clients) {
@@ -186,34 +187,36 @@ export class ClientService {
       }
     }
 
-    if (offlineClientIds.length > 0) {
-      await this.releaseTasksForOfflineClients(offlineClientIds);
-    }
+    await this.releaseOrphanedTasks(offlineClientIds, knownClientIds);
   }
 
-  private async releaseTasksForOfflineClients(offlineClientIds: string[]): Promise<void> {
+  private async releaseOrphanedTasks(
+    offlineClientIds: string[],
+    knownClientIds: Set<string>,
+  ): Promise<void> {
     if (!this.taskService) return;
 
-    const idSet = new Set(offlineClientIds);
+    const offlineSet = new Set(offlineClientIds);
     const tasks = await this.taskService.listTasks();
-    const orphanedTasks = tasks.filter(
-      (t) =>
-        (t.status === 'claimed' || t.status === 'in_progress') &&
-        t.claimedBy?.clientId !== undefined &&
-        idSet.has(t.claimedBy.clientId),
-    );
+
+    const orphanedTasks = tasks.filter((t) => {
+      if (t.status !== 'claimed' && t.status !== 'in_progress') return false;
+      const claimClientId = t.claimedBy?.clientId;
+      if (!claimClientId) return false;
+      return offlineSet.has(claimClientId) || !knownClientIds.has(claimClientId);
+    });
 
     for (const task of orphanedTasks) {
       const clientId = task.claimedBy?.clientId ?? '';
+      const reason = knownClientIds.has(clientId)
+        ? 'Worker offline (heartbeat timeout)'
+        : 'Claimed by deleted/unknown client';
       try {
-        await this.taskService.releaseTask(task.id, {
-          clientId,
-          reason: 'Worker offline (heartbeat timeout)',
-        });
+        await this.taskService.releaseTask(task.id, { clientId, reason });
         this.logger.info('Released orphaned task', {
           category: 'task',
           event: 'task.released.auto',
-          context: { taskId: task.id, clientId },
+          context: { taskId: task.id, clientId, reason },
         });
       } catch {
         this.logger.warn('Failed to release orphaned task', {

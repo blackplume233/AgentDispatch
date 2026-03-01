@@ -57,15 +57,24 @@ describe('WorkerManager', () => {
     expect(state!.currentTaskId).toBe('task-1');
   });
 
-  it('should handle normal exit', () => {
+  it('should keep busy on normal exit when task is active (ACP handler releases)', () => {
     const manager = new WorkerManager(controller);
     manager.registerWorker(workerConfig);
     manager.assignTask('w1', 'task-1');
     manager.handleWorkerExit('w1', 0);
 
     const state = manager.getWorkerState('w1');
+    expect(state!.status).toBe('busy');
+    expect(state!.currentTaskId).toBe('task-1');
+  });
+
+  it('should mark idle on normal exit when no task is active', () => {
+    const manager = new WorkerManager(controller);
+    manager.registerWorker(workerConfig);
+    manager.handleWorkerExit('w1', 0);
+
+    const state = manager.getWorkerState('w1');
     expect(state!.status).toBe('idle');
-    expect(state!.currentTaskId).toBeUndefined();
   });
 
   it('should release task on crash', () => {
