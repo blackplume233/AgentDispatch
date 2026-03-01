@@ -27,6 +27,22 @@ const isDirectRun =
 
 if (isDirectRun) {
   const config = loadConfig();
+
+  const isExposed = config.host === '0.0.0.0' || config.host === '::' || config.host === '';
+  if (isExposed && !config.auth?.enabled) {
+    const msg =
+      'Server is listening on all interfaces but auth is disabled. ' +
+      'Any device on the network can access the API without authentication. ' +
+      'Set auth.enabled=true and configure auth.users in server.config.json.';
+    console.warn(`\n⚠  WARNING: ${msg}\n`);
+  }
+  if (isExposed && config.auth?.enabled && config.auth.users.length === 0) {
+    const msg =
+      'Auth is enabled but no users are configured in auth.users. ' +
+      'Dashboard login will be unavailable. Add at least one user to auth.users in server.config.json.';
+    console.warn(`\n⚠  WARNING: ${msg}\n`);
+  }
+
   const { app, context } = await createApp(config);
 
   context.clientService.startHeartbeatCheck();

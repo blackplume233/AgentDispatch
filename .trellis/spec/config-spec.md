@@ -25,6 +25,7 @@
 | 2026-02-28 | ClientConfig 新增 `dispatchMode` 字段；Manager Agent 从必须改为按模式可选；DispatchRule 新增 `priority`；autoDispatch 新增 `fallbackAction` | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-03-01 | AgentConfig.command 新增 Common Mistake 警告：裸命令启动交互终端而非 ACP 模式；全部 14 个 Agent 命令经逐一核实修正 | [CHANGED] | ClientNode, Docs |
 | 2026-03-01 | AgentConfig.command 示例修正：Claude 需通过 `claude-agent-acp` 适配器、Codex 需通过 `codex-acp` 适配器；新增 ACP 兼容 Agent 完整列表引用 | [CHANGED] | ClientNode, Docs |
+| 2026-03-01 | Dashboard 远程访问配置：新增 `VITE_DASHBOARD_HOST`/`VITE_DASHBOARD_PORT`/`VITE_API_URL` 环境变量；Vite proxy 新增 `/health` 转发；Server 启动时 host 为全接口且 auth 未启用时输出安全警告 | [CHANGED] | Dashboard, Server |
 | 2026-03-01 | AgentConfig 新增 `env` 可选字段：允许在配置中声明注入子进程的环境变量（如 API Key、模型端点），优先级：process.env < agentConfig.env < 系统注入的 DISPATCH_* | [CHANGED] | ClientNode |
 | 2026-02-28 | AgentConfig 明确 ACP SDK 集成字段；新增 `acpCapabilities` 配置段；`command` 字段说明更新为 ACP Agent 启动命令 | [CHANGED] | ClientNode |
 | 2026-03-01 | auth.tokens 支持角色：`string` 默认 client 角色，`{ token, role }` 指定角色（admin/client/operator）；operator 角色禁止 claim/release/progress/complete/cancel/patch 等 worker 操作；新增 `FORBIDDEN` 错误码 (403) | [CHANGED] | Server |
@@ -52,6 +53,9 @@
 | `DISPATCH_AUTH_TOKENS` | string | — | [NEW 2026-03-01] 逗号分隔的静态 Token 列表；可附加 `:role` 后缀指定角色（admin/client/operator），无后缀默认 client。例：`tok_abc,tok_op:operator`。与配置文件 `auth.tokens` 合并（环境变量追加在后，重复 token 后者覆盖角色） |
 | `DISPATCH_TOKEN` | string | — | [NEW 2026-03-01] CLI/Worker 鉴权 Token；CLI 通过此变量或 `--token` 传递；ClientNode 为 Worker 子进程自动注入临时 Token |
 | `DISPATCH_IPC_PATH` | string | — | [NEW 2026-03-01] ClientNode 为 Worker 子进程注入的 IPC socket/pipe 路径，Worker 通过此变量连接 CLI → IPC |
+| `VITE_DASHBOARD_HOST` | string | `false` (localhost) | [NEW 2026-03-01] Dashboard dev server 监听地址。设为 `true` / `0.0.0.0` / `::` 监听全部接口（局域网访问）。**暴露时必须配置 auth** |
+| `VITE_DASHBOARD_PORT` | number | `3000` | [NEW 2026-03-01] Dashboard dev server 监听端口 |
+| `VITE_API_URL` | string | `http://localhost:9800` | [NEW 2026-03-01] Dashboard 代理的 Server API 地址。局域网部署时应设为 Server 的局域网 IP |
 
 **IPC 路径平台默认值** [CHANGED 2026-02-28]：
 
@@ -441,7 +445,69 @@ interface AgentConfig {
 
 ---
 
-## 5. Defaults & Overrides
+## 5. Dashboard Configuration [NEW 2026-03-01]
+
+Dashboard 是独立的 SPA（Vite + React），通过环境变量控制开发服务器行为。
+
+### 开发模式（Vite dev server）
+
+| 环境变量 | 类型 | 默认值 | 说明 |
+|----------|------|--------|------|
+| `VITE_DASHBOARD_HOST` | string | `false` (localhost only) | 设为 `true` / `0.0.0.0` / `::` 监听全部网络接口 |
+| `VITE_DASHBOARD_PORT` | number | `3000` | dev server 端口 |
+| `VITE_API_URL` | string | `http://localhost:9800` | 代理目标 Server 地址 |
+
+**快速启动**：
+
+```bash
+# 仅本机访问（默认）
+pnpm --filter @agentdispatch/dashboard dev
+
+# 局域网访问（其他设备可通过 http://<host-ip>:3000 打开）
+pnpm --filter @agentdispatch/dashboard dev:remote
+
+# 自定义 API 地址
+VITE_API_URL=http://192.168.1.100:9800 VITE_DASHBOARD_HOST=true pnpm --filter @agentdispatch/dashboard dev
+```
+
+### Vite Proxy 端点
+
+| 路径 | 目标 | 说明 |
+|------|------|------|
+| `/api/*` | `{VITE_API_URL}/api/*` | Server REST API |
+| `/health` | `{VITE_API_URL}/health` | Server 健康检查（auth-context 依赖） |
+
+### 安全约束 — 远程访问必须配置鉴权
+
+> **⚠️ 当 Dashboard 暴露到非 localhost 接口时（`VITE_DASHBOARD_HOST=true`），Server 侧必须同时满足：**
+>
+> 1. `auth.enabled = true`
+> 2. `auth.users` 至少包含一个用户（username + password）
+>
+> **否则任何局域网设备可无需登录直接访问 Dashboard 和全部 API。**
+
+Server 启动时会检查此条件：若 `host` 为 `0.0.0.0` / `::` 且 auth 未配置，控制台输出安全警告。
+
+**配置示例（`server.config.json`）**：
+
+```json
+{
+  "host": "0.0.0.0",
+  "port": 9800,
+  "auth": {
+    "enabled": true,
+    "users": [
+      { "username": "admin", "password": "your-strong-password" }
+    ],
+    "tokens": ["tok_client_xxx"],
+    "sessionTtl": 86400000
+  }
+}
+```
+
+---
+
+## 6. Defaults & Overrides
 
 ### 优先级（低 → 高）
 
@@ -472,3 +538,6 @@ interface AgentConfig {
 | HTTP 日志 | `true` |
 | 审计日志 | `true` |
 | Agent 交互日志 | `true` |
+| Dashboard host | `false` (localhost) |
+| Dashboard port | `3000` |
+| Dashboard API URL | `http://localhost:9800` |
