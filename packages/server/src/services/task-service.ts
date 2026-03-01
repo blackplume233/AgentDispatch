@@ -112,8 +112,23 @@ export class TaskService {
   }
 
   async updateTask(taskId: string, dto: UpdateTaskDTO): Promise<Task> {
+    const FORBIDDEN_FIELDS = ['id', 'status', 'createdAt', 'updatedAt', 'claimedBy', 'claimedAt', 'completedAt', 'artifacts', 'attachments'];
+    const dtoKeys = Object.keys(dto as Record<string, unknown>);
+    const sentForbidden = FORBIDDEN_FIELDS.filter((k) => dtoKeys.includes(k));
+    if (sentForbidden.length > 0) {
+      throw new ValidationError(
+        ErrorCode.VALIDATION_ERROR,
+        `Cannot update protected fields: ${sentForbidden.join(', ')}`,
+      );
+    }
+
     const task = await this.getTask(taskId);
     const allowed: (keyof UpdateTaskDTO)[] = ['title', 'description', 'tags', 'priority', 'metadata'];
+
+    if ('tags' in dto && dto.tags !== undefined && !Array.isArray(dto.tags)) {
+      throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'tags must be an array');
+    }
+
     const patch: Partial<Task> = {};
     for (const key of allowed) {
       if (key in dto && dto[key] !== undefined) {
@@ -201,6 +216,13 @@ export class TaskService {
       );
     }
 
+    if (task.claimedBy?.clientId && dto.clientId && task.claimedBy.clientId !== dto.clientId) {
+      throw new ConflictError(
+        ErrorCode.TASK_ALREADY_CLAIMED,
+        `Only the task owner (${task.claimedBy.clientId}) can release this task`,
+      );
+    }
+
     const updated: Task = {
       ...task,
       status: 'pending',
@@ -228,6 +250,13 @@ export class TaskService {
 
   async reportProgress(taskId: string, dto: ProgressDTO): Promise<Task> {
     const task = await this.getTask(taskId);
+
+    if (task.claimedBy?.clientId && dto.clientId && task.claimedBy.clientId !== dto.clientId) {
+      throw new ConflictError(
+        ErrorCode.TASK_ALREADY_CLAIMED,
+        `Only the task owner (${task.claimedBy.clientId}) can report progress`,
+      );
+    }
 
     let updated: Task;
     if (task.status === 'claimed') {
@@ -262,13 +291,20 @@ export class TaskService {
     return updated;
   }
 
-  async cancelTask(taskId: string, _dto: CancelTaskDTO): Promise<Task> {
+  async cancelTask(taskId: string, dto: CancelTaskDTO): Promise<Task> {
     const task = await this.getTask(taskId);
 
     if (!isValidTransition(task.status, 'cancelled')) {
       throw new ValidationError(
         ErrorCode.TASK_INVALID_TRANSITION,
         `Cannot cancel task in ${task.status} status`,
+      );
+    }
+
+    if (task.claimedBy?.clientId && dto.clientId && task.claimedBy.clientId !== dto.clientId) {
+      throw new ConflictError(
+        ErrorCode.TASK_ALREADY_CLAIMED,
+        `Only the task owner (${task.claimedBy.clientId}) can cancel this task`,
       );
     }
 

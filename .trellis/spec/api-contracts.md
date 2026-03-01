@@ -35,6 +35,7 @@
 | 2026-02-28 | ACP 实现确定使用 `@agentclientprotocol/sdk` v0.14.x；ACP 协议章节重写为基于 JSON-RPC 2.0 的 SDK 集成规范；新增 ClientNode ACP 能力声明、会话生命周期、双通道通信模型                                                                                                                                                                          | [CHANGED] | ClientNode, Worker, Manager           |
 | 2026-03-01 | Worker 临时 Token：ClientNode 为每个 Worker 进程分配 `wt_<uuid>` 临时 token，通过 `DISPATCH_TOKEN` + `DISPATCH_IPC_PATH` 环境变量注入；任务完成/取消/释放时自动撤销；IPC 鉴权优先匹配本地 workerTokens                                                                                                                                        | [CHANGED] | ClientNode                            |
 | 2026-03-01 | IPC 层鉴权：CLI `--token` / `DISPATCH_TOKEN` 传入 token；Client-Node 对 worker-only IPC 命令验证 token role（通过调用 Server `/auth/me`，60s 缓存）；`IPCMessage` 新增 `token?` 字段；仅当 `ClientConfig.token` 存在时启用                                                                                                                    | [CHANGED] | ClientNode, ClientCLI, Shared         |
+| 2026-03-01 | 任务所有权守卫与输入校验增强：release/progress/cancel 校验 `claimedBy.clientId` 与请求方一致（`CancelTaskDTO` 新增 `clientId?`）；`PATCH /tasks/:id` 拒绝 protected 字段（id/status/createdAt 等）并校验 tags 为 array；`POST /clients/register` 校验 `dispatchMode` 枚举值；heartbeat 容忍空 body；complete 路由先校验任务状态再解析 multipart | [CHANGED] | Server, Shared                        |
 | 2026-03-01 | Server error handler 增强：Fastify JSON 解析错误返回 400（非 500）；空 body + Content-Type:json 的 DELETE 请求不再触发解析错误                                                                                                                                                                                                                | [CHANGED] | Server                                |
 | 2026-03-01 | auth.tokens 支持 `{ token, role }` 格式；新增 `operator` 角色（只读+创建/删除，禁止 worker 操作）；受限端点返回 `403 FORBIDDEN`；`/auth/me` 返回 `role` 字段                                                                                                                                                                                  | [CHANGED] | Server                                |
 | 2026-03-01 | 新增 Auth 路由（login/logout/me）；所有 API 启用可选 Bearer Token 鉴权；`/health` 返回体新增 `authEnabled` 字段；新增 `UNAUTHORIZED` 错误码                                                                                                                                                                                                   | [CHANGED] | Server, ClientNode, Dashboard         |
@@ -165,10 +166,42 @@ IPC 请求带 token
 | POST   | `/tasks/:id/claim`                 | 申领任务                          | `{ clientId, agentId }`                             | `Task`             |
 | POST   | `/tasks/:id/release`               | 释放任务（Worker 中断时）         | `{ clientId, reason }`                              | `Task`             |
 | POST   | `/tasks/:id/complete`              | 完成任务（需上传产物）            | `multipart: CompleteTaskDTO + files`                | `Task`             |
-| POST   | `/tasks/:id/cancel`                | 取消任务                          | `{ reason? }`                                       | `Task`             |
+| POST   | `/tasks/:id/cancel`                | 取消任务                          | `{ clientId?, reason? }` [CHANGED 2026-03-01]       | `Task`             |
 | DELETE | `/tasks/:id`                       | 删除任务                          | -                                                   | `void`             |
 | GET    | `/tasks/:id/attachments`           | 列出任务附件                      | -                                                   | `TaskAttachment[]` |
 | GET    | `/tasks/:id/attachments/:filename` | 下载单个附件                      | -                                                   | `binary stream`    |
+
+#### Task 所有权守卫 [NEW 2026-03-01]
+
+当任务处于 `claimed` 或 `in_progress` 状态时，`release`、`progress`、`cancel` 操作会校验请求方 `clientId` 是否为任务 owner（`task.claimedBy.clientId`）。非 owner 请求返回 `409 TASK_ALREADY_CLAIMED`。
+
+| 端点 | clientId 来源 | 校验行为 |
+|------|--------------|---------|
+| `POST /tasks/:id/release` | `ReleaseTaskDTO.clientId`（必填） | 必须匹配 owner |
+| `POST /tasks/:id/progress` | `ProgressDTO.clientId`（必填） | 必须匹配 owner |
+| `POST /tasks/:id/cancel` | `CancelTaskDTO.clientId`（可选） | 提供时校验；不提供则跳过（向后兼容管理员场景） |
+
+> **设计意图**：`cancel` 的 `clientId` 为可选，允许管理员/系统在不持有 owner 身份时取消任务。
+
+#### UpdateTaskDTO 输入校验 [NEW 2026-03-01]
+
+`PATCH /tasks/:id` 拒绝以下受保护字段，请求包含任一字段时返回 `400 VALIDATION_ERROR`：
+
+`id`, `status`, `createdAt`, `updatedAt`, `claimedBy`, `claimedAt`, `completedAt`, `artifacts`, `attachments`
+
+`tags` 字段如提供，必须为 `string[]` 类型，否则返回 `400 VALIDATION_ERROR`。
+
+#### RegisterClientDTO 输入校验 [NEW 2026-03-01]
+
+`dispatchMode` 必须为合法枚举值之一：`manager` | `tag-auto` | `hybrid`。非法值返回 `400 VALIDATION_ERROR`。
+
+#### HeartbeatDTO [CHANGED 2026-03-01]
+
+`POST /clients/:id/heartbeat` 的 body 为可选。空 body 或 `{}` 仅更新 `lastHeartbeat` 时间戳，不修改 agents 列表。
+
+#### Complete 端点行为 [CHANGED 2026-03-01]
+
+`POST /tasks/:id/complete` 在解析 multipart body 之前先校验任务状态。非法状态（如 `pending`）返回 `400 TASK_INVALID_TRANSITION` 而非 `406`。
 
 #### Task 状态机
 

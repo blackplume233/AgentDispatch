@@ -46,6 +46,14 @@ export class ClientService {
       throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'agents is required and must be an array');
     }
 
+    const VALID_DISPATCH_MODES = ['manager', 'tag-auto', 'hybrid'] as const;
+    if (!dto.dispatchMode || !VALID_DISPATCH_MODES.includes(dto.dispatchMode as typeof VALID_DISPATCH_MODES[number])) {
+      throw new ValidationError(
+        ErrorCode.VALIDATION_ERROR,
+        `dispatchMode must be one of: ${VALID_DISPATCH_MODES.join(', ')}`,
+      );
+    }
+
     const existing = await this.findByName(dto.name);
     if (existing) {
       throw new ConflictError(
@@ -119,13 +127,13 @@ export class ClientService {
     return this.store.list();
   }
 
-  async heartbeat(clientId: string, dto: HeartbeatDTO): Promise<void> {
+  async heartbeat(clientId: string, dto?: HeartbeatDTO): Promise<void> {
     const client = await this.getClient(clientId);
     const updated: Client = {
       ...client,
       status: 'online',
       lastHeartbeat: new Date().toISOString(),
-      agents: dto.agents ?? client.agents,
+      agents: dto?.agents ?? client.agents,
     };
 
     await this.queue.enqueue({

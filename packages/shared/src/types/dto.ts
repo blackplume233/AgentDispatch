@@ -37,6 +37,7 @@ export interface CompleteTaskDTO {
 }
 
 export interface CancelTaskDTO {
+  clientId?: string;
   reason?: string;
 }
 

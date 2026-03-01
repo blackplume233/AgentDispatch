@@ -155,6 +155,14 @@ export function registerTaskRoutes(
     '/api/v1/tasks/:id/complete',
     { preHandler: [workerOnly] },
     async (request, reply) => {
+      const preCheckTask = await taskService.getTask(request.params.id);
+      if (TERMINAL_TASK_STATUSES.includes(preCheckTask.status) || preCheckTask.status === 'pending') {
+        throw new ValidationError(
+          ErrorCode.TASK_INVALID_TRANSITION,
+          `Cannot complete task in ${preCheckTask.status} status`,
+        );
+      }
+
       const parts = request.parts();
       let zipBuffer: Buffer | null = null;
       let resultBuffer: Buffer | null = null;
