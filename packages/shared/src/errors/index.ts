@@ -15,6 +15,9 @@ export const ErrorCode = {
   ARTIFACT_INVALID_JSON: 'ARTIFACT_INVALID_JSON',
   ARTIFACT_HASH_MISMATCH: 'ARTIFACT_HASH_MISMATCH',
   QUEUE_FULL: 'QUEUE_FULL',
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  FORBIDDEN: 'FORBIDDEN',
+  AUTH_DISABLED: 'AUTH_DISABLED',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
@@ -39,6 +42,9 @@ const ERROR_STATUS_MAP: Record<string, number> = {
   IPC_TIMEOUT: 504,
   AGENT_START_FAILED: 500,
   QUEUE_FULL: 503,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  AUTH_DISABLED: 404,
   INTERNAL_ERROR: 500,
 };
 
@@ -74,5 +80,19 @@ export class ValidationError extends AppError {
   constructor(code: string, message: string, details?: unknown) {
     super(code, message, 400, details);
     this.name = 'ValidationError';
+  }
+}
+
+export class UnauthorizedError extends AppError {
+  constructor(message = 'Unauthorized', details?: unknown) {
+    super(ErrorCode.UNAUTHORIZED, message, 401, details);
+    this.name = 'UnauthorizedError';
+  }
+}
+
+export class ForbiddenError extends AppError {
+  constructor(message = 'Forbidden', details?: unknown) {
+    super(ErrorCode.FORBIDDEN, message, 403, details);
+    this.name = 'ForbiddenError';
   }
 }

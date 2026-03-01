@@ -11,17 +11,23 @@ export interface WorkerState {
 }
 
 export class WorkerManager {
+  private static readonly RESTART_BASE_DELAY = 2000;
+  private static readonly RESTART_MAX_DELAY = 30000;
+
   private workers: Map<string, WorkerState> = new Map();
   private configs: Map<string, AgentConfig> = new Map();
   private controller: AcpController;
   private onTaskRelease?: (taskId: string, reason: string) => void;
+  private onWorkerRestarted?: (agentId: string, attempt: number) => void;
 
   constructor(
     controller: AcpController,
     onTaskRelease?: (taskId: string, reason: string) => void,
+    onWorkerRestarted?: (agentId: string, attempt: number) => void,
   ) {
     this.controller = controller;
     this.onTaskRelease = onTaskRelease;
+    this.onWorkerRestarted = onWorkerRestarted;
   }
 
   registerWorker(config: AgentConfig, maxRestarts = 3): void {
@@ -71,7 +77,18 @@ export class WorkerManager {
 
     if (worker.restartCount < worker.maxRestarts) {
       worker.restartCount++;
-      worker.status = 'idle';
+      worker.status = 'restarting';
+      const delay = Math.min(
+        WorkerManager.RESTART_BASE_DELAY * Math.pow(2, worker.restartCount - 1),
+        WorkerManager.RESTART_MAX_DELAY,
+      );
+      setTimeout(() => {
+        const w = this.workers.get(agentId);
+        if (w && w.status === 'restarting') {
+          w.status = 'idle';
+          this.onWorkerRestarted?.(agentId, w.restartCount);
+        }
+      }, delay);
     }
   }
 

@@ -10,6 +10,7 @@ import { TaskPoller } from './polling/task-poller.js';
 import { Dispatcher } from './dispatch/dispatcher.js';
 import { AcpController } from './acp/acp-controller.js';
 import { WorkerManager } from './agents/worker-manager.js';
+import { ManagerHandler } from './agents/manager-handler.js';
 
 const WORKER_ONLY_COMMANDS = new Set([
   'worker.progress',
@@ -46,6 +47,7 @@ export class ClientNode {
   private dispatcher: Dispatcher;
   private acpController: AcpController;
   private workerManager: WorkerManager;
+  private managerHandler: ManagerHandler;
   private client: Client | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private pendingTasks: Task[] = [];
@@ -104,11 +106,24 @@ export class ClientNode {
         void this.reportAgentProgress(agentId, taskId, status);
       },
     });
-    this.workerManager = new WorkerManager(this.acpController, (taskId, reason) => {
-      this.log(`Releasing task ${taskId}: ${reason}`);
-      if (this.client) {
-        void this.httpClient.releaseTask(taskId, { clientId: this.client.id, reason }).catch(() => {});
-      }
+    this.workerManager = new WorkerManager(
+      this.acpController,
+      (taskId, reason) => {
+        this.log(`Releasing task ${taskId}: ${reason}`);
+        if (this.client) {
+          void this.httpClient.releaseTask(taskId, { clientId: this.client.id, reason }).catch(() => {});
+        }
+      },
+      (agentId, attempt) => {
+        this.log(`Worker ${agentId} recovered (attempt ${attempt}), ready for new tasks`);
+        this.recordClientLog('info', 'agent.restarted', `Worker ${agentId} auto-recovered (attempt ${attempt})`, { agentId, attempt });
+      },
+    );
+
+    this.managerHandler = new ManagerHandler(config, {
+      consultTimeout: 30_000,
+      log: (msg) => this.log(msg),
+      onAudit: (event, detail) => this.recordClientLog('info', event, JSON.stringify(detail), detail),
     });
 
     for (const agentCfg of config.agents) {
@@ -159,10 +174,13 @@ export class ClientNode {
     this.recordClientLog('info', 'node.registered', `Registered as ${this.client.id}`);
     this.startHeartbeat();
     this.poller.start();
+    await this.startManagerIfConfigured();
     return this.client;
   }
 
   async unregister(): Promise<void> {
+    await this.managerHandler.stopManager();
+    this.dispatcher.setManagerAvailable(false);
     if (this.client) {
       await this.httpClient.unregisterClient(this.client.id);
       this.recordClientLog('info', 'node.unregistered', `Unregistered ${this.client.id}`);
@@ -179,6 +197,8 @@ export class ClientNode {
     this.stopHeartbeat();
     this.workerTokens.clear();
     this.workerTokensByAgent.clear();
+    await this.managerHandler.stopManager();
+    this.dispatcher.setManagerAvailable(false);
     await this.acpController.stopAll();
     await this.ipcServer.stop();
     this.flushClientLogs();
@@ -231,6 +251,25 @@ export class ClientNode {
     return this.dispatcher;
   }
 
+  getManagerHandler(): ManagerHandler {
+    return this.managerHandler;
+  }
+
+  private async startManagerIfConfigured(): Promise<void> {
+    const managerCfg = this.config.agents.find((a) => a.type === 'manager');
+    if (!managerCfg) return;
+    if (this.config.dispatchMode !== 'manager' && this.config.dispatchMode !== 'hybrid') return;
+
+    this.log(`Starting Manager agent ${managerCfg.id}...`);
+    await this.managerHandler.startManager(managerCfg);
+    if (this.managerHandler.isAvailable()) {
+      this.dispatcher.setManagerAvailable(true);
+      this.log(`Manager agent ready, dispatch mode=${this.config.dispatchMode}`);
+    } else {
+      this.log('Manager agent failed to start, falling back to tag rules if hybrid');
+    }
+  }
+
   private buildAgentInfos(): AgentInfo[] {
     return this.workerManager.getAllWorkers().map((w) => {
       const cfg = this.config.agents.find((a) => a.id === w.agentId);
@@ -255,22 +294,43 @@ export class ClientNode {
         const agents = this.buildAgentInfos();
         const decision = this.dispatcher.decide(task, agents);
 
-        if (decision.action !== 'dispatch') continue;
+        let targetAgentId: string | undefined;
 
-        const worker = this.workerManager.getWorkerState(decision.agentId);
+        if (decision.action === 'dispatch') {
+          targetAgentId = decision.agentId;
+        } else if (decision.action === 'consult-manager') {
+          const advice = await this.managerHandler.consultForDispatch(task, agents);
+          if (advice && advice.recommendedAgentId) {
+            targetAgentId = advice.recommendedAgentId;
+            this.recordClientLog('info', 'dispatch.manager_advice', `Manager recommended ${advice.recommendedAgentId} (confidence=${advice.confidence})`, {
+              taskId: task.id,
+              recommendedAgentId: advice.recommendedAgentId,
+              confidence: advice.confidence,
+              reason: advice.reason,
+            });
+          } else {
+            this.log(`Manager provided no advice for task ${task.id.slice(0, 8)}, skipping`);
+            continue;
+          }
+        } else {
+          continue;
+        }
+
+        if (!targetAgentId) continue;
+        const worker = this.workerManager.getWorkerState(targetAgentId);
         if (!worker || worker.status !== 'idle') continue;
 
         try {
           await this.httpClient.claimTask(task.id, {
             clientId: this.client.id,
-            agentId: decision.agentId,
+            agentId: targetAgentId,
           });
-          this.log(`Claimed task "${task.title}" → ${decision.agentId}`);
-          this.recordClientLog('info', 'task.claimed', `Claimed task "${task.title}" → ${decision.agentId}`, { taskId: task.id, agentId: decision.agentId });
+          this.log(`Claimed task "${task.title}" → ${targetAgentId}`);
+          this.recordClientLog('info', 'task.claimed', `Claimed task "${task.title}" → ${targetAgentId}`, { taskId: task.id, agentId: targetAgentId });
 
-          this.workerManager.assignTask(decision.agentId, task.id);
+          this.workerManager.assignTask(targetAgentId, task.id);
 
-          const agentCfg = this.config.agents.find((a) => a.id === decision.agentId);
+          const agentCfg = this.config.agents.find((a) => a.id === targetAgentId);
           if (agentCfg) {
             const outputDir = path.join(agentCfg.workDir, '.dispatch', 'output', task.id.slice(0, 12));
             await fs.promises.mkdir(outputDir, { recursive: true });
@@ -284,10 +344,10 @@ export class ClientNode {
             }
 
             const workerToken = this.config.token
-              ? this.issueWorkerToken(decision.agentId, task.id)
+              ? this.issueWorkerToken(targetAgentId, task.id)
               : undefined;
             await this.acpController.launchAgent(agentCfg, task, outputDir, inputDir, workerToken, (dir) => this.scanWorkDir(dir));
-            this.log(`Launched agent ${decision.agentId} for task ${task.id.slice(0, 8)} (outputDir=${outputDir}${inputDir ? `, inputDir=${inputDir}` : ''})`);
+            this.log(`Launched agent ${targetAgentId} for task ${task.id.slice(0, 8)} (outputDir=${outputDir}${inputDir ? `, inputDir=${inputDir}` : ''})`);
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);

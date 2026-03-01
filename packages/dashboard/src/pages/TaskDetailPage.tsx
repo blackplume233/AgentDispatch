@@ -1,7 +1,8 @@
 import type React from "react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, Link } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
@@ -59,10 +60,26 @@ function mergeLogs(entries: InteractionLogEntry[]): InteractionLogEntry[] {
 export function TaskDetailPage(): React.ReactElement {
   const { t } = useTranslation();
   const { id = "" } = useParams<{ id: string }>();
+  const queryClient = useQueryClient();
   const { data: task, isLoading, error, refetch } = useTask(id);
 
   const isActive = !!task && !["completed", "failed", "cancelled"].includes(task.status);
   const { logs } = useTaskLogs(id, isActive);
+
+  useEffect(() => {
+    if (!id || !isActive) return;
+    const token = localStorage.getItem("dispatch_token");
+    const url = `/api/v1/tasks/${id}/stream?interval=2000&logs=false`;
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource(token ? `${url}&token=${encodeURIComponent(token)}` : url);
+      es.addEventListener("task", () => {
+        void queryClient.invalidateQueries({ queryKey: ["tasks", id] });
+      });
+      es.addEventListener("done", () => { es?.close(); });
+    } catch { /* SSE unavailable */ }
+    return () => { es?.close(); };
+  }, [id, isActive, queryClient]);
   const hasArtifacts = !!task?.artifacts;
   const { data: artifactFiles } = useArtifactFiles(id, hasArtifacts);
 

@@ -22,17 +22,23 @@ import type { OperationQueue } from '../queue/operation-queue.js';
 import type { TaskStore } from '../store/task-store.js';
 import type { ArchiveIndex, ArchiveListFilters } from '../store/archive-index.js';
 import type { ArchiveCache } from '../store/archive-cache.js';
+import type { CallbackService } from './callback-service.js';
 import type { Logger } from '../utils/logger.js';
 
 export class TaskService {
   private archiveIndex: ArchiveIndex | null = null;
   private archiveCache: ArchiveCache | null = null;
+  private callbackService: CallbackService | null = null;
 
   constructor(
     private store: TaskStore,
     private queue: OperationQueue,
     private logger: Logger,
   ) {}
+
+  setCallbackService(service: CallbackService): void {
+    this.callbackService = service;
+  }
 
   setArchive(index: ArchiveIndex, cache: ArchiveCache): void {
     this.archiveIndex = index;
@@ -216,11 +222,13 @@ export class TaskService {
       );
     }
 
-    if (task.claimedBy?.clientId && dto.clientId && task.claimedBy.clientId !== dto.clientId) {
-      throw new ConflictError(
-        ErrorCode.TASK_ALREADY_CLAIMED,
-        `Only the task owner (${task.claimedBy.clientId}) can release this task`,
-      );
+    if (task.claimedBy?.clientId) {
+      if (!dto.clientId || task.claimedBy.clientId !== dto.clientId) {
+        throw new ConflictError(
+          ErrorCode.TASK_ALREADY_CLAIMED,
+          `Only the task owner (${task.claimedBy.clientId}) can release this task`,
+        );
+      }
     }
 
     const updated: Task = {
@@ -251,11 +259,13 @@ export class TaskService {
   async reportProgress(taskId: string, dto: ProgressDTO): Promise<Task> {
     const task = await this.getTask(taskId);
 
-    if (task.claimedBy?.clientId && dto.clientId && task.claimedBy.clientId !== dto.clientId) {
-      throw new ConflictError(
-        ErrorCode.TASK_ALREADY_CLAIMED,
-        `Only the task owner (${task.claimedBy.clientId}) can report progress`,
-      );
+    if (task.claimedBy?.clientId) {
+      if (!dto.clientId || task.claimedBy.clientId !== dto.clientId) {
+        throw new ConflictError(
+          ErrorCode.TASK_ALREADY_CLAIMED,
+          `Only the task owner (${task.claimedBy.clientId}) can report progress`,
+        );
+      }
     }
 
     let updated: Task;
@@ -301,11 +311,13 @@ export class TaskService {
       );
     }
 
-    if (task.claimedBy?.clientId && dto.clientId && task.claimedBy.clientId !== dto.clientId) {
-      throw new ConflictError(
-        ErrorCode.TASK_ALREADY_CLAIMED,
-        `Only the task owner (${task.claimedBy.clientId}) can cancel this task`,
-      );
+    if (task.claimedBy?.clientId) {
+      if (!dto.clientId || task.claimedBy.clientId !== dto.clientId) {
+        throw new ConflictError(
+          ErrorCode.TASK_ALREADY_CLAIMED,
+          `Only the task owner (${task.claimedBy.clientId}) can cancel this task`,
+        );
+      }
     }
 
     const updated: Task = {
@@ -326,6 +338,8 @@ export class TaskService {
       event: 'task.cancelled',
       context: { taskId },
     });
+
+    this.fireCallback(updated);
     return updated;
   }
 
@@ -391,6 +405,8 @@ export class TaskService {
       event: 'task.completed',
       context: { taskId },
     });
+
+    this.fireCallback(updated);
     return updated;
   }
 
@@ -423,6 +439,18 @@ export class TaskService {
       event: 'task.failed',
       context: { taskId, reason },
     });
+
+    this.fireCallback(updated);
     return updated;
+  }
+
+  private fireCallback(task: Task): void {
+    if (!task.callbackUrl || !this.callbackService) return;
+    this.callbackService.notifyTaskClosed(task).catch((err) => {
+      this.logger.error('Callback dispatch error', {
+        taskId: task.id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 }

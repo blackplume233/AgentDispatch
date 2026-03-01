@@ -25,4 +25,4 @@ export type { MatchResult } from './dispatch/tag-matcher.js';
 export { WorkerManager } from './agents/worker-manager.js';
 export type { WorkerState } from './agents/worker-manager.js';
 export { ManagerHandler } from './agents/manager-handler.js';
-export type { DispatchAdvice } from './agents/manager-handler.js';
+export type { DispatchAdvice, ManagerHandlerOptions } from './agents/manager-handler.js';

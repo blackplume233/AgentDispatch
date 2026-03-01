@@ -13,6 +13,7 @@ import { ClientService } from './services/client-service.js';
 import { ArtifactService } from './services/artifact-service.js';
 import { AttachmentService } from './services/attachment-service.js';
 import { ArchiveScheduler } from './services/archive-scheduler.js';
+import { CallbackService } from './services/callback-service.js';
 import { Logger } from './utils/logger.js';
 import { AuthManager, registerAuthHook } from './middleware/auth.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -70,8 +71,10 @@ export async function createApp(
   const archiveCache = new ArchiveCache(config.archive.cacheMaxAge);
   archiveCache.start();
 
+  const callbackService = new CallbackService(config.callbacks, logger);
   const taskService = new TaskService(taskStore, queue, logger);
   taskService.setArchive(archiveIndex, archiveCache);
+  taskService.setCallbackService(callbackService);
 
   const archiveScheduler = new ArchiveScheduler(
     taskStore, archiveIndex, queue, logger,
