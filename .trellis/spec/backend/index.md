@@ -861,6 +861,24 @@ CLI 包的 `console.log` 是面向用户的正常输出渠道，不应触发 `no
 },
 ```
 
+### Gotcha: POST 无 body 且无 Content-Type 返回 415 [NEW 2026-03-01]
+
+> **⚠️ Fastify 对所有 POST 请求都会尝试查找 Content-Type parser。如果客户端发送了不带 body 且不带 Content-Type 的 POST 请求（如 logout），Fastify 返回 `415 Unsupported Media Type`。**
+
+**症状**：`POST /auth/logout` 或其他无 body 的 POST 端点，部分 HTTP 客户端不自动附加 Content-Type 时返回 415。
+
+**Fix**: 注册通配符 content-type parser 作为兜底，接受 Fastify 内置 parser 不认识的 Content-Type：
+
+```typescript
+app.addContentTypeParser('*', (_request, payload, done) => {
+  let data = '';
+  payload.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+  payload.on('end', () => { done(null, data || undefined); });
+});
+```
+
+注意：此 parser 优先级低于已注册的 `application/json` 和 `text/plain`，不影响正常 JSON 解析。
+
 ### Gotcha: PowerShell curl.exe 的 JSON 转义 [NEW 2026-03-01]
 
 > **⚠️ 在 Windows PowerShell 中使用 `curl.exe` 发送 JSON body 时，反斜杠 `\"` 转义会被 PowerShell 二次处理，导致 Server 收到非法 JSON。**

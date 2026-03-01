@@ -21,6 +21,7 @@
 
 | 日期 | 变更 | 类型 | 影响范围 |
 |------|------|------|----------|
+| 2026-03-01 | 新增 `GET /tasks/:id/stream` SSE 端点，实时推送任务状态变化和交互日志；支持 `interval`、`logs` 查询参数；终态自动关闭连接 | [CHANGED] | Server |
 | 2026-03-01 | 任务归档机制：终态任务隔天自动归档到 `tasks-archive/`；新增 `GET /tasks/archived` 返回 `TaskSummary[]`；`GET /tasks/:id` 支持归档回退；归档详情 1h TTL 缓存；Logger 跨天切换 stream；`ServerConfig.archive` 配置块 | [CHANGED] | Server, Dashboard |
 | 2026-03-01 | Task 附件功能：`POST /tasks` 支持 multipart/form-data 上传附件（向后兼容 JSON）；新增 `GET /tasks/:id/attachments` 列出附件、`GET /tasks/:id/attachments/:filename` 下载单个附件；Task 新增 `attachments?: TaskAttachment[]` 字段；ClientNode claim 后自动下载附件到 inputDir 并在 prompt 中告知 Agent | [CHANGED] | Server, ClientNode, Dashboard |
 | 2026-03-01 | 日志聚合消息边界修正：`plan`/`default` 不再触发 `flushStreamBuffers()`，仅 `tool_call`/`tool_call_update` 触发（真正的阶段切换）；进度上报增加 3s 节流 + 流式粗略状态（Responding.../Thinking...）；ClientNode 新增自动重连（指数退避 2s→30s）；Dashboard 渲染前合并相邻同类型日志条目（text/thinking/prompt 直接拼接，tool_call 组换行拼接） | [CHANGED] | ClientNode, Dashboard |
@@ -352,7 +353,41 @@ interface AgentInfo {
 }
 ```
 
-### 1.3 Task Progress Reporting
+### 1.3 Task Status Stream (SSE) [NEW 2026-03-01]
+
+| Method | Path | Description | Query Params | Response |
+|--------|------|-------------|--------------|----------|
+| GET | `/tasks/:id/stream` | SSE 实时推送任务状态变化和日志 | `interval` (ms, 默认 2000), `logs` (true/false, 默认 true) | `text/event-stream` |
+
+Server-Sent Events 端点，建立长连接后持续推送以下事件：
+
+| 事件名 | 触发条件 | 数据结构 |
+|--------|---------|---------|
+| `task` | 任务状态或进度变化（`updatedAt` 改变） | `{ id, status, progress, progressMessage, claimedBy, updatedAt, completedAt }` |
+| `logs` | 有新的交互日志 | `InteractionLogEntry[]` |
+| `done` | 任务到达终态（completed/failed/cancelled） | `{ taskId, finalStatus }` |
+| `error` | 轮询出错 | `{ message }` |
+
+**行为**：
+- 连接建立后立即推送当前状态
+- 按 `interval` 参数轮询检测变化（范围 500-30000ms）
+- 任务到达终态后发送 `done` 事件并关闭连接
+- 客户端断开时自动清理
+
+**使用示例**：
+
+```bash
+curl -N "http://localhost:9800/api/v1/tasks/{taskId}/stream?interval=1000&logs=true"
+```
+
+```javascript
+const es = new EventSource('/api/v1/tasks/{taskId}/stream?interval=1000');
+es.addEventListener('task', (e) => console.log(JSON.parse(e.data)));
+es.addEventListener('logs', (e) => console.log(JSON.parse(e.data)));
+es.addEventListener('done', (e) => { console.log('Task finished:', JSON.parse(e.data)); es.close(); });
+```
+
+### 1.4 Task Progress Reporting
 
 | Method | Path | Description | Request Body | Response |
 |--------|------|-------------|--------------|----------|

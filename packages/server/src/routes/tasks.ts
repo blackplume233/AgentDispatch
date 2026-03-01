@@ -7,6 +7,7 @@ import type { AttachmentService } from '../services/attachment-service.js';
 import type { LogStore } from '../store/log-store.js';
 import type {
   TaskStatus,
+  Task,
   CreateTaskDTO,
   UpdateTaskDTO,
   ClaimTaskDTO,
@@ -15,7 +16,7 @@ import type {
   CancelTaskDTO,
   AppendTaskLogsDTO,
 } from '@agentdispatch/shared';
-import { ValidationError, ErrorCode } from '@agentdispatch/shared';
+import { ValidationError, ErrorCode, TERMINAL_TASK_STATUSES } from '@agentdispatch/shared';
 import { requireRole } from '../middleware/auth.js';
 
 export function registerTaskRoutes(
@@ -299,4 +300,85 @@ export function registerTaskRoutes(
         .send(stream);
     },
   );
+
+  // --- SSE: Task status stream ---
+
+  app.get<{
+    Params: { id: string };
+    Querystring: { interval?: string; logs?: string };
+  }>('/api/v1/tasks/:id/stream', async (request, reply) => {
+    const taskId = request.params.id;
+    const pollInterval = Math.max(500, Math.min(30000, Number(request.query.interval) || 2000));
+    const includeLogs = request.query.logs !== 'false';
+
+    // Verify task exists (throws TASK_NOT_FOUND if missing)
+    await taskService.getTask(taskId);
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    const sendEvent = (event: string, data: unknown): void => {
+      reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+
+    let lastUpdatedAt = '';
+    let lastLogId: string | undefined;
+    let closed = false;
+
+    const cleanup = (): void => {
+      closed = true;
+      clearInterval(timer);
+    };
+
+    request.raw.on('close', cleanup);
+    request.raw.on('error', cleanup);
+
+    const poll = async (): Promise<void> => {
+      if (closed) return;
+      try {
+        const task: Task = await taskService.getTask(taskId);
+
+        if (task.updatedAt !== lastUpdatedAt) {
+          lastUpdatedAt = task.updatedAt;
+          sendEvent('task', {
+            id: task.id,
+            status: task.status,
+            progress: task.progress,
+            progressMessage: task.progressMessage,
+            claimedBy: task.claimedBy,
+            updatedAt: task.updatedAt,
+            completedAt: task.completedAt,
+          });
+        }
+
+        if (includeLogs) {
+          const logs = await logStore.getTaskLogs(taskId, lastLogId);
+          if (logs.length > 0) {
+            const lastLog = logs[logs.length - 1];
+            if (lastLog) lastLogId = lastLog.id;
+            sendEvent('logs', logs);
+          }
+        }
+
+        if (TERMINAL_TASK_STATUSES.includes(task.status)) {
+          sendEvent('done', { taskId: task.id, finalStatus: task.status });
+          reply.raw.end();
+          cleanup();
+        }
+      } catch {
+        if (!closed) {
+          sendEvent('error', { message: 'Failed to poll task state' });
+        }
+      }
+    };
+
+    // Initial push
+    await poll();
+
+    const timer = setInterval(() => void poll(), pollInterval);
+  });
 }

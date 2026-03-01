@@ -157,13 +157,21 @@ export async function createApp(
     registerAuthHook(app, authManager);
   }
 
-  // Tolerate empty body with application/json Content-Type (common in DELETE requests)
+  // Tolerate empty-body requests: JSON DELETE with no body, POST with no Content-Type (e.g. logout)
   app.addHook('preParsing', async (request, _reply, payload) => {
-    if (request.headers['content-type']?.includes('application/json') &&
-        request.headers['content-length'] === '0') {
+    const ct = request.headers['content-type'];
+    const cl = request.headers['content-length'];
+    if (ct?.includes('application/json') && cl === '0') {
       request.headers['content-type'] = undefined as unknown as string;
     }
     return payload;
+  });
+
+  // Accept unknown/missing content types for requests with no meaningful body (prevents 415)
+  app.addContentTypeParser('*', (_request, payload, done) => {
+    let data = '';
+    payload.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+    payload.on('end', () => { done(null, data || undefined); });
   });
 
   // Multipart support for artifact uploads and attachments
