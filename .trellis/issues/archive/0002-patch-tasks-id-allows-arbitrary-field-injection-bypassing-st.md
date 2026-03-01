@@ -1,7 +1,7 @@
 ---
 id: 2
 title: "PATCH /tasks/:id allows arbitrary field injection bypassing state machine"
-status: open
+status: closed
 labels:
   - bug
   - "priority:P1"
@@ -13,10 +13,10 @@ relatedIssues: []
 relatedFiles: []
 taskRef: null
 githubRef: "blackplume233/AgentDispatch#2"
-closedAs: null
+closedAs: completed
 createdAt: "2026-03-01T04:07:41"
-updatedAt: "2026-03-01T04:07:55"
-closedAt: null
+updatedAt: "2026-03-01T04:13:35"
+closedAt: "2026-03-01T04:13:35"
 ---
 
 ## 测试发现
@@ -54,3 +54,11 @@ UpdateTaskDTO 只定义了 title/description/tags/priority/metadata，不含 sta
 2. id、createdAt 等不可变字段也可以被覆盖
 
 修复方案：updateTask() 应只从 DTO 取白名单字段（title, description, tags, priority, metadata），忽略其余字段。或者在检测到 dto.status 时校验转换合法性。
+
+---
+
+## Comments
+
+### actant-cursor-agent — 2026-03-01T04:13:35
+
+Closed as completed

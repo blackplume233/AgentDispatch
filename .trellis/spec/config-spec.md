@@ -19,6 +19,7 @@
 | 日期 | 变更 | 类型 | 影响范围 |
 |------|------|------|----------|
 | 2026-02-28 | AgentConfig.workDir 语义明确：ACP session cwd 始终为 Agent 注册的 workDir（保留 Agent 上下文/skills）；产物输出到隔离子目录 `{workDir}/.dispatch/output/{taskId-prefix}/`；进度汇报改为纯状态描述 | [CHANGED] | ClientNode |
+| 2026-03-01 | ServerConfig 新增 `archive` 配置段（checkInterval/archiveAfterDays/cacheMaxAge）；新增 `DISPATCH_ARCHIVE_*` 环境变量；数据目录新增 `tasks-archive/` 归档存储 | [CHANGED] | Server |
 | 2026-03-01 | ServerConfig 新增 `attachments` 配置段；Server 数据目录新增 `attachments/{task-id}/` 存储结构；ClientNode 新增 `{workDir}/.dispatch/input/{taskId-prefix}/` 输入目录 | [CHANGED] | Server, ClientNode |
 | 2026-02-28 | ServerConfig 新增 `artifacts` 配置段；Server 数据目录新增 `artifacts/{task-id}/` 存储结构 | [CHANGED] | Server |
 | 2026-02-28 | ClientConfig 新增 `dispatchMode` 字段；Manager Agent 从必须改为按模式可选；DispatchRule 新增 `priority`；autoDispatch 新增 `fallbackAction` | [CHANGED] | ClientNode, Server, Dashboard |
@@ -38,6 +39,9 @@
 | `DISPATCH_QUEUE_MAX_SIZE` | number | `1000` | 操作队列最大长度 |
 | `DISPATCH_HEARTBEAT_TIMEOUT` | number | `60000` | 心跳超时（ms），超时判定 Client 离线 |
 | `DISPATCH_CLIENT_IPC_PATH` | string | 平台相关（见下方） | ClientNode IPC 管道/socket 路径 |
+| `DISPATCH_ARCHIVE_CHECK_INTERVAL` | number | `3600000` | 归档调度器检查间隔（ms） |
+| `DISPATCH_ARCHIVE_AFTER_DAYS` | number | `1` | 终态任务隔 N 天后归档（0=立即） |
+| `DISPATCH_ARCHIVE_CACHE_MAX_AGE` | number | `3600000` | 归档详情 TTL 缓存时长（ms） |
 
 **IPC 路径平台默认值** [CHANGED 2026-02-28]：
 
@@ -98,6 +102,13 @@ interface ServerConfig {
     httpLog: boolean;              // 记录所有 HTTP 请求/响应，默认 true
     auditLog: boolean;             // 记录所有任务/Client 操作，默认 true
   };
+
+  // [CHANGED 2026-03-01] 任务归档与内存管理
+  archive: {
+    checkInterval: number;         // 归档检查间隔（ms），默认 3600000（1h）
+    archiveAfterDays: number;      // 终态任务隔 N 天归档，默认 1
+    cacheMaxAge: number;           // 归档详情 TTL 缓存（ms），默认 3600000（1h）
+  };
 }
 ```
 
@@ -112,6 +123,10 @@ interface ServerConfig {
 │   └── {task-id}/
 │       ├── requirements.pdf       # 用户上传的附件文件
 │       └── dataset.csv
+├── tasks-archive/                 # [CHANGED 2026-03-01] 归档任务
+│   ├── index.json                 # 归档索引（TaskSummary[]）
+│   ├── {task-id}.json             # 归档任务元数据
+│   └── {task-id}.md               # 归档任务详情
 ├── artifacts/                     # ⚠️ [CHANGED 2026-02-28] 任务产物（必须）
 │   └── {task-id}/
 │       ├── artifact.zip           # 工作成果 zip 包

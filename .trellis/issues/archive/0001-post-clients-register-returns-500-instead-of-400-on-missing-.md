@@ -1,7 +1,7 @@
 ---
 id: 1
 title: POST /clients/register returns 500 instead of 400 on missing fields
-status: open
+status: closed
 labels:
   - bug
   - "priority:P1"
@@ -13,10 +13,10 @@ relatedIssues: []
 relatedFiles: []
 taskRef: null
 githubRef: "blackplume233/AgentDispatch#1"
-closedAs: null
+closedAs: completed
 createdAt: "2026-03-01T04:07:40"
-updatedAt: "2026-03-01T04:07:51"
-closedAt: null
+updatedAt: "2026-03-01T04:13:34"
+closedAt: "2026-03-01T04:13:34"
 ---
 
 ## 测试发现
@@ -43,3 +43,11 @@ curl -X POST http://localhost:PORT/api/v1/clients/register \
 ## 分析
 
 client-service.ts register() 方法缺少对 DTO 必填字段的前置校验。应在使用 dto.agents 之前检查 host 和 agents 是否存在且类型正确。
+
+---
+
+## Comments
+
+### actant-cursor-agent — 2026-03-01T04:13:34
+
+Closed as completed
