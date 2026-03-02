@@ -52,6 +52,23 @@ export function registerConfigCommands(program: Command, getClient: () => IPCCli
     });
 
   configCmd
+    .command('reload')
+    .description('Hot-reload agents from config file (adds new workers, removes deleted ones)')
+    .option('--config <path>', 'Path to client.config.json')
+    .action(async (opts: { config?: string }) => {
+      const client = getClient();
+      const result = await client.send('config.reload', {
+        configPath: opts.config,
+      });
+      const r = result as { added?: string[]; removed?: string[]; kept?: string[] };
+      console.log(
+        `Reload complete: +${r.added?.length ?? 0} added, -${r.removed?.length ?? 0} removed, ${r.kept?.length ?? 0} kept`,
+      );
+      if (r.added && r.added.length > 0) console.log(`  Added:   ${r.added.join(', ')}`);
+      if (r.removed && r.removed.length > 0) console.log(`  Removed: ${r.removed.join(', ')}`);
+    });
+
+  configCmd
     .command('edit')
     .description('Open configuration file in editor')
     .option('--config <path>', 'Path to client.config.json', 'client.config.json')

@@ -646,12 +646,33 @@ interface IPCError {
 | `worker.status`    | 查询任务执行状态                | `{ taskId: string }`                                                        | `WorkerState`                                              |
 | `worker.log`       | 追加任务日志                    | `{ taskId: string; message: string }`                                       | `{ success: true }`                                        |
 | `worker.heartbeat` | Worker 存活心跳                 | `{ taskId: string }`                                                        | `{ success: true }`                                        |
-| `agent.add`        | 注册新 Agent                    | `{ type, command, workDir, ... }`                                           | `{ success: boolean; agentId?: string; message?: string }` |
-| `agent.remove`     | 注销 Agent                      | `{ agentId: string }`                                                       | `{ success: boolean; message: string }`                    |
-| `agent.list`       | 列出 Agent                      | `{ status?: string }`                                                       | `AgentInfo[]`                                              |
-| `agent.status`     | 查看 Agent 详情                 | `{ agentId: string }`                                                       | `AgentInfo`                                                |
-| `agent.restart`    | 重启 Agent                      | `{ agentId: string }`                                                       | `{ success: boolean; message: string }`                    |
+| `agent.add`        | 运行时注册新 Worker [HOT-PLUG]  | `{ command, workDir, id?, type?, capabilities?, autoClaimTags?, maxConcurrency?, presetPrompt? }` | `{ success: boolean; agentId: string; expandedIds: string[] }` |
+| `agent.remove`     | 运行时注销 Worker [HOT-PLUG]    | `{ agentId: string; force?: boolean }`                                      | `{ success: boolean; message: string; removedIds: string[] }` |
+| `agent.list`       | 列出 Agent                      | -                                                                           | `AgentInfo[]`                                              |
+| `agent.status`     | 查看 Agent 详情                 | `{ agentId: string }`                                                       | `WorkerState & { config?: { command, workDir, capabilities, groupId } }` |
+| `agent.restart`    | 重启 Agent（取消任务后重置）    | `{ agentId: string }`                                                       | `{ success: boolean; message: string }`                    |
 | `config.show`      | 显示当前配置                    | -                                                                           | `ClientConfig`                                             |
+| `config.reload`    | 热重载 Agent 配置 [HOT-PLUG]    | `{ configPath?: string }`                                                   | `{ added: string[]; removed: string[]; kept: string[] }`   |
+
+### Worker Hot-Plug 语义 [NEW 2026-03-02]
+
+> 运行时动态增删 Worker，无需重启 ClientNode。
+
+**两种触发方式**：
+
+| 方式 | IPC 命令 | CLI | 适用场景 |
+|------|----------|-----|----------|
+| Config Reload | `config.reload` | `dispatch config reload` | 编辑配置文件后批量同步 |
+| 单个增删 | `agent.add` / `agent.remove` | `dispatch agent add/remove` | 编排器动态调度 |
+
+**关键行为**：
+
+- `agent.add` 支持 `maxConcurrency`：展开为多个虚拟 Worker（`id:0`, `id:1`, ...），`expandedIds` 返回所有实例 ID
+- `agent.remove` 按 `groupId` 级联删除：传入组 ID（如 `worker-main`）会移除该组全部虚拟 Worker
+- `agent.remove` 默认拒绝移除 busy Worker，`force: true` 先取消任务再移除
+- `config.reload` 读取配置文件，diff 对比后自动增删；busy Worker 被 reload 移除时任务自动取消
+- 所有 hot-plug 操作完成后自动调用 `syncAgentsToServer()` 同步到 Server
+- Hot-plug 变更 **不回写配置文件**（Runtime-only，无状态容器模型）
 
 ### 序列化
 

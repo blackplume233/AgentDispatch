@@ -40,10 +40,18 @@ export class WorkerManager {
     });
   }
 
-  unregisterWorker(agentId: string): void {
+  unregisterWorker(agentId: string, force = false): void {
+    const worker = this.workers.get(agentId);
+    if (worker && worker.status === 'busy' && !force) {
+      throw new Error(`Worker ${agentId} is busy (task=${worker.currentTaskId}). Use force to remove.`);
+    }
     this.controller.stopAgent(agentId);
     this.workers.delete(agentId);
     this.configs.delete(agentId);
+  }
+
+  getWorkerConfig(agentId: string): WorkerConfig | undefined {
+    return this.configs.get(agentId);
   }
 
   assignTask(agentId: string, taskId: string): void {

@@ -6,12 +6,14 @@ import { v4 as uuid } from 'uuid';
 import type {
   Client,
   ClientConfig,
+  WorkerConfig,
   Task,
   AgentInfo,
   InteractionLogEntry,
   ClientLogEntry,
   AuthTokenRole,
 } from '@agentdispatch/shared';
+import { loadClientConfig } from './config.js';
 import { ServerHttpClient } from './http/server-client.js';
 import { IPCServer } from './ipc/ipc-server.js';
 import { TaskPoller } from './polling/task-poller.js';
@@ -518,6 +520,182 @@ export class ClientNode {
     this.markWorkerIdle(agentId);
   }
 
+  private async addWorkerAtRuntime(raw: {
+    id?: string;
+    type?: string;
+    command: string;
+    workDir: string;
+    capabilities?: string[];
+    autoClaimTags?: string[];
+    maxConcurrency?: number;
+    presetPrompt?: string;
+  }): Promise<{ success: boolean; agentId: string; expandedIds: string[] }> {
+    if (!raw.command || !raw.workDir) {
+      throw new Error('command and workDir are required');
+    }
+    const agentId = raw.id ?? `worker-${uuid().slice(0, 8)}`;
+    if (this.runtimeAgentsById.has(agentId)) {
+      throw new Error(`Agent ${agentId} already exists`);
+    }
+
+    const workerConfig: WorkerConfig = {
+      id: agentId,
+      type: 'worker',
+      command: raw.command,
+      workDir: raw.workDir,
+      capabilities: raw.capabilities,
+      autoClaimTags: raw.autoClaimTags,
+      maxConcurrency: raw.maxConcurrency,
+      presetPrompt: raw.presetPrompt,
+    };
+
+    const expanded = buildRuntimeAgents([workerConfig]);
+    const expandedIds: string[] = [];
+    for (const cfg of expanded) {
+      if (!isWorkerRuntimeConfig(cfg)) continue;
+      this.runtimeAgents.push(cfg);
+      this.runtimeAgentsById.set(cfg.id, cfg);
+      this.workerConfigsById.set(cfg.id, cfg);
+      this.workerManager.registerWorker(cfg);
+      expandedIds.push(cfg.id);
+    }
+
+    await this.syncAgentsToServer();
+    this.log(`Added worker ${agentId} (${expandedIds.length} slot(s)): ${expandedIds.join(', ')}`);
+    this.recordClientLog('info', 'agent.added', `Added worker ${agentId}`, {
+      agentId,
+      expandedIds,
+    });
+    return { success: true, agentId, expandedIds };
+  }
+
+  private async removeWorkerAtRuntime(
+    agentId: string,
+    force = false,
+  ): Promise<{ success: boolean; message: string; removedIds: string[] }> {
+    const removedIds: string[] = [];
+
+    const directWorker = this.workerConfigsById.get(agentId);
+    if (directWorker) {
+      const groupId = directWorker.groupId;
+      const idsToRemove = this.runtimeAgents
+        .filter((a) => isWorkerRuntimeConfig(a) && a.groupId === groupId)
+        .map((a) => a.id);
+
+      for (const id of idsToRemove) {
+        const w = this.workerManager.getWorkerState(id);
+        if (w?.status === 'busy' && w.currentTaskId) {
+          if (!force) {
+            throw new Error(
+              `Worker ${id} is busy (task=${w.currentTaskId}). Use force to remove.`,
+            );
+          }
+          await this.cancelRunningTask(w.currentTaskId, 'Worker removed (force)');
+        }
+        this.workerManager.unregisterWorker(id, true);
+        this.runtimeAgentsById.delete(id);
+        this.workerConfigsById.delete(id);
+        removedIds.push(id);
+      }
+      this.runtimeAgents = this.runtimeAgents.filter((a) => !removedIds.includes(a.id));
+    } else {
+      const byGroup = this.runtimeAgents.filter(
+        (a) => isWorkerRuntimeConfig(a) && a.groupId === agentId,
+      );
+      if (byGroup.length === 0) {
+        throw new Error(`Agent ${agentId} not found`);
+      }
+      for (const cfg of byGroup) {
+        const w = this.workerManager.getWorkerState(cfg.id);
+        if (w?.status === 'busy' && w.currentTaskId) {
+          if (!force) {
+            throw new Error(
+              `Worker ${cfg.id} is busy (task=${w.currentTaskId}). Use force to remove.`,
+            );
+          }
+          await this.cancelRunningTask(w.currentTaskId, 'Worker removed (force)');
+        }
+        this.workerManager.unregisterWorker(cfg.id, true);
+        this.runtimeAgentsById.delete(cfg.id);
+        this.workerConfigsById.delete(cfg.id);
+        removedIds.push(cfg.id);
+      }
+      this.runtimeAgents = this.runtimeAgents.filter((a) => !removedIds.includes(a.id));
+    }
+
+    await this.syncAgentsToServer();
+    this.log(`Removed worker(s): ${removedIds.join(', ')}`);
+    this.recordClientLog('info', 'agent.removed', `Removed ${removedIds.length} worker(s)`, {
+      agentId,
+      removedIds,
+    });
+    return { success: true, message: `Removed ${removedIds.length} worker(s)`, removedIds };
+  }
+
+  private async reloadAgentsFromConfig(configPath?: string): Promise<{
+    added: string[];
+    removed: string[];
+    kept: string[];
+  }> {
+    const newConfig = loadClientConfig(configPath);
+    const newRuntime = buildRuntimeAgents(newConfig.agents);
+
+    const oldIds = new Set(this.runtimeAgents.map((a) => a.id));
+    const newIds = new Set(newRuntime.map((a) => a.id));
+
+    const toAdd = newRuntime.filter((a) => !oldIds.has(a.id));
+    const toRemove = this.runtimeAgents.filter((a) => !newIds.has(a.id));
+    const kept = this.runtimeAgents.filter((a) => newIds.has(a.id)).map((a) => a.id);
+
+    const removedIds: string[] = [];
+    for (const cfg of toRemove) {
+      if (!isWorkerRuntimeConfig(cfg)) continue;
+      const w = this.workerManager.getWorkerState(cfg.id);
+      if (w?.status === 'busy' && w.currentTaskId) {
+        await this.cancelRunningTask(w.currentTaskId, 'Worker removed during config reload');
+      }
+      this.workerManager.unregisterWorker(cfg.id, true);
+      this.runtimeAgentsById.delete(cfg.id);
+      this.workerConfigsById.delete(cfg.id);
+      removedIds.push(cfg.id);
+    }
+    this.runtimeAgents = this.runtimeAgents.filter((a) => !removedIds.includes(a.id));
+
+    const addedIds: string[] = [];
+    for (const cfg of toAdd) {
+      this.runtimeAgents.push(cfg);
+      this.runtimeAgentsById.set(cfg.id, cfg);
+      if (isWorkerRuntimeConfig(cfg)) {
+        this.workerConfigsById.set(cfg.id, cfg);
+        this.workerManager.registerWorker(cfg);
+      }
+      addedIds.push(cfg.id);
+    }
+
+    this.config = { ...this.config, agents: newConfig.agents };
+
+    await this.syncAgentsToServer();
+    this.log(
+      `Config reloaded: +${addedIds.length} added, -${removedIds.length} removed, ${kept.length} kept`,
+    );
+    this.recordClientLog('info', 'config.reloaded', 'Agent config reloaded', {
+      added: addedIds,
+      removed: removedIds,
+      kept,
+    });
+    return { added: addedIds, removed: removedIds, kept };
+  }
+
+  private async syncAgentsToServer(): Promise<void> {
+    if (!this.client) return;
+    try {
+      await this.httpClient.updateAgents(this.client.id, this.buildAgentInfos());
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`Failed to sync agents to server: ${msg}`);
+    }
+  }
+
   private markWorkerIdle(agentId: string): void {
     const worker = this.workerManager.getWorkerState(agentId);
     if (worker) {
@@ -951,6 +1129,60 @@ export class ClientNode {
 
       case 'config.show':
         return this.config;
+
+      case 'config.reload': {
+        const cr = payload as { configPath?: string } | undefined;
+        return this.reloadAgentsFromConfig(cr?.configPath);
+      }
+
+      case 'agent.add': {
+        const a = payload as {
+          id?: string;
+          type?: string;
+          command: string;
+          workDir: string;
+          capabilities?: string[];
+          autoClaimTags?: string[];
+          maxConcurrency?: number;
+          presetPrompt?: string;
+        };
+        return this.addWorkerAtRuntime(a);
+      }
+
+      case 'agent.remove': {
+        const r = payload as { agentId: string; force?: boolean };
+        return this.removeWorkerAtRuntime(r.agentId, r.force);
+      }
+
+      case 'agent.list':
+        return this.buildAgentInfos();
+
+      case 'agent.status': {
+        const as = payload as { agentId: string };
+        const state = this.workerManager.getWorkerState(as.agentId);
+        if (!state) throw new Error(`Agent ${as.agentId} not found`);
+        const cfg = this.workerConfigsById.get(as.agentId);
+        return {
+          ...state,
+          config: cfg
+            ? { command: cfg.command, workDir: cfg.workDir, capabilities: cfg.capabilities, groupId: cfg.groupId }
+            : undefined,
+        };
+      }
+
+      case 'agent.restart': {
+        const ar = payload as { agentId: string };
+        const worker = this.workerManager.getWorkerState(ar.agentId);
+        if (!worker) throw new Error(`Agent ${ar.agentId} not found`);
+        if (worker.status === 'busy' && worker.currentTaskId) {
+          await this.cancelRunningTask(worker.currentTaskId, 'Agent restart requested');
+        }
+        this.acpController.stopAgent(ar.agentId);
+        worker.status = 'idle';
+        worker.currentTaskId = undefined;
+        worker.restartCount = 0;
+        return { success: true, message: `Agent ${ar.agentId} restarted` };
+      }
 
       default:
         throw new Error(`Unknown IPC command: ${command}`);

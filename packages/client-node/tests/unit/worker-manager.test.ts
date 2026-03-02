@@ -97,4 +97,41 @@ describe('WorkerManager', () => {
     expect(idle).toHaveLength(1);
     expect(idle[0]!.agentId).toBe('w2');
   });
+
+  it('should unregister idle worker', () => {
+    const manager = new WorkerManager(controller);
+    manager.registerWorker(workerConfig);
+    manager.unregisterWorker('w1');
+
+    expect(manager.getWorkerState('w1')).toBeUndefined();
+    expect(manager.getAllWorkers()).toHaveLength(0);
+  });
+
+  it('should reject unregister of busy worker without force', () => {
+    const manager = new WorkerManager(controller);
+    manager.registerWorker(workerConfig);
+    manager.assignTask('w1', 'task-1');
+
+    expect(() => manager.unregisterWorker('w1')).toThrow(/busy/);
+    expect(manager.getWorkerState('w1')).toBeDefined();
+  });
+
+  it('should force unregister busy worker', () => {
+    const manager = new WorkerManager(controller);
+    manager.registerWorker(workerConfig);
+    manager.assignTask('w1', 'task-1');
+
+    manager.unregisterWorker('w1', true);
+    expect(manager.getWorkerState('w1')).toBeUndefined();
+  });
+
+  it('should expose worker config via getWorkerConfig', () => {
+    const manager = new WorkerManager(controller);
+    manager.registerWorker(workerConfig);
+
+    const cfg = manager.getWorkerConfig('w1');
+    expect(cfg).toBeDefined();
+    expect(cfg!.command).toBe('echo');
+    expect(manager.getWorkerConfig('nonexistent')).toBeUndefined();
+  });
 });
