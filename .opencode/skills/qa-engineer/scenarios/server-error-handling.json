@@ -1,0 +1,68 @@
+{
+  "name": "server-error-handling",
+  "description": "验证 Server 端的错误处理：无效请求、不存在资源、非法状态转换",
+  "tags": ["error", "boundary", "server"],
+  "setup": {
+    "server": true,
+    "clientNode": false
+  },
+  "steps": [
+    {
+      "id": "create-invalid-task",
+      "description": "创建缺少必填字段的任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks {}",
+      "expect": "返回 400，错误消息指明缺少的字段"
+    },
+    {
+      "id": "get-nonexistent-task",
+      "description": "查询不存在的任务",
+      "type": "http",
+      "command": "GET /api/v1/tasks/nonexistent-id-12345",
+      "expect": "返回 404"
+    },
+    {
+      "id": "claim-nonexistent-task",
+      "description": "认领不存在的任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks/nonexistent-id-12345/claim {\"clientId\":\"c1\",\"agentId\":\"a1\"}",
+      "expect": "返回 404"
+    },
+    {
+      "id": "complete-pending-task",
+      "description": "对 pending 状态的任务直接 complete（非法状态转换）",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:id/complete (pending task)",
+      "expect": "返回 409 或 400，错误消息说明状态转换非法"
+    },
+    {
+      "id": "cancel-completed-task",
+      "description": "对 completed 状态的任务 cancel（非法状态转换）",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:id/cancel (completed task)",
+      "expect": "返回 409 或 400，错误消息说明状态转换非法"
+    },
+    {
+      "id": "double-claim",
+      "description": "对已被认领的任务再次认领",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:id/claim (already claimed)",
+      "expect": "返回 409，错误消息说明已被认领"
+    },
+    {
+      "id": "get-nonexistent-client",
+      "description": "查询不存在的客户端",
+      "type": "http",
+      "command": "GET /api/v1/clients/nonexistent-client-id",
+      "expect": "返回 404"
+    },
+    {
+      "id": "heartbeat-nonexistent",
+      "description": "对不存在的客户端发送心跳",
+      "type": "http",
+      "command": "POST /api/v1/clients/nonexistent-client-id/heartbeat",
+      "expect": "返回 404"
+    }
+  ],
+  "cleanup": []
+}

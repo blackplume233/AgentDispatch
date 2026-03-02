@@ -1,0 +1,147 @@
+---
+description: "Migrated command: /qa-loop"
+---
+
+# /qa-loop — QA 循环验证斜杠命令
+
+当用户输入 `/qa-loop` 时，执行完整的 **测试 → 报告 → Issue → 修复 → 回归** 循环，直到所有测试 100% 通过。
+
+## 命令格式
+
+```
+/qa-loop [scope] [options]
+```
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `scope` | 测试范围：`all`（全部场景）、场景名、Issue 编号（如 `#35`）、或自由描述 | `all` |
+| `--max-rounds N` | 最大循环轮数（安全阀，0 = 无限） | `0` |
+| `--skip-fix` | 仅测试+报告，不自动修复 | 不设置 |
+| `--unit-only` | 仅循环单元测试（`pnpm test`），跳过黑盒场景 | 不设置 |
+
+## 执行流程
+
+### Phase 0: 准备
+
+1. **构建项目**
+   ```bash
+   pnpm build
+   ```
+2. **加载 QA Agent 技能**
+   - 读取 `.opencode/skills/qa-engineer/SKILL.md`
+   - 读取 `.opencode/skills/qa-engineer/workflows/cyclic-verification.md`
+3. **确定测试范围**
+   - `all` → 读取 `.opencode/skills/qa-engineer/scenarios/*.json`，加载全部场景
+   - 场景名 → 加载对应的 `scenarios/<name>.json`
+   - Issue 编号 → 根据 Issue 关联的功能模块，智能选取相关场景
+   - 自由描述 → 进入 explore 模式，根据描述即兴设计测试步骤
+4. **创建隔离环境**
+   - 临时目录（`mktemp -d -t dispatch-qa-XXXXXX`）
+   - 随机端口（`$(( RANDOM % 10000 + 20000 ))`）
+5. **启动 Server**
+   ```bash
+   DISPATCH_DATA_DIR="$TEST_DIR/data" DISPATCH_PORT=$PORT \
+     node packages/server/dist/index.js &
+   ```
+
+### Phase 1: 完整测试（增量日志模式）
+
+由 QA SubAgent 执行。**核心要求：每执行一步就立即将该步的完整记录追加到日志文件，不得等全部执行完再回忆填写。**
+
+日志文件：`.qa/<session>/qa-log-roundN.md`（`<session>` 为本次循环的标识）
+
+每步的写入流程：
+1. **执行前** → 将原始输入（完整命令/HTTP 请求及参数）追加到日志文件
+2. **执行后** → 将原始返回值（response body 全文、status_code / exit_code）追加到日志文件
+3. **判断** → 紧跟输出之后，追加 PASS/WARN/FAIL + 判断依据
+
+测试执行策略：
+1. 按场景组逐步执行测试步骤
+2. 随机交叉执行、随机插入干扰操作、随机化参数
+3. 同时运行单元测试套件（`pnpm test`）
+4. 日志文件即执行过程的第一手记录，供最终报告引用
+
+### Phase 2: Issue 创建
+
+- FAIL → 创建 `--bug --priority P1 --label qa` Issue
+- WARN → 酌情创建 `--enhancement --priority P2 --label qa` Issue
+- 创建前搜索已有 Issue，避免重复
+
+### Phase 3: 自动修复
+
+对每个新建 Issue，启动 SubAgent 进行修复：
+
+1. 读取 Issue 内容，分析根因
+2. 修改源码
+3. `pnpm test:changed` 验证增量测试通过
+4. `pnpm build` 重新构建
+
+### Phase 4: 回归验证（循环）
+
+**关键**：必须重新执行 **完整的** Phase 1 测试（不仅是失败步骤）。
+
+- 全部 PASS → 进入 Phase 5
+- 仍有 FAIL → 回到 Phase 3 继续修复，然后再次 Phase 4
+- 每轮记录通过率趋势（如 85% → 92% → 100%）
+- 如果设置了 `--max-rounds` 且达到上限，停止循环并输出当前状态
+
+### Phase 5: 收尾
+
+1. 停止 Server，清理临时环境（杀死进程树 + rm -rf）
+2. 输出最终汇总报告（含所有轮次通过率趋势）
+3. 如果发现了新的可复用场景，保存到 `scenarios/` 目录
+4. 更新 `workflows/cyclic-verification.md` 记录本次经验
+
+## 报告格式
+
+每轮测试产出两个文件，保存在任务目录下：
+
+```
+.qa/<session>/qa-log-roundN.md      ← 增量日志（执行过程中逐条追加）
+.qa/<session>/qa-report-roundN.md    ← 最终报告（执行结束后从日志汇总）
+```
+
+**qa-log 是证据链**：包含每步的原始输入、原始输出、判断，在执行过程中实时写入。
+**qa-report 是摘要**：从 qa-log 汇总生成，包含摘要表格、失败分析、完整日志引用。
+
+最终汇总报告输出到对话中，格式：
+
+```markdown
+## /qa-loop 循环验证汇总
+
+**范围**: <scope>
+**总轮次**: N
+**最终结果**: PASS / FAIL
+
+### 通过率趋势
+| 轮次 | 单元测试 | 黑盒场景 | 新建 Issue |
+|------|---------|---------|-----------|
+| R1   | .../... | .../... | #... |
+| R2   | .../... | .../... | —   |
+
+### 修复的 Issue
+| Issue | 标题 | 修复文件 |
+|-------|------|---------|
+| #...  | ...  | ...     |
+
+### 残留问题（如有）
+| Issue | 标题 | 状态 | 原因 |
+|-------|------|------|------|
+| #...  | ...  | open | ... |
+```
+
+## 与 QA Agent 的关系
+
+`/qa-loop` 是对 QA Agent 能力的**编排层**：
+
+- QA Agent（`.opencode/skills/qa-engineer/SKILL.md`）负责单次测试执行和判断
+- `/qa-loop` 负责多轮循环的编排、修复调度和收敛控制
+- 测试场景来自 QA Agent 的 `scenarios/` 目录
+- 循环验证流程参考 `workflows/cyclic-verification.md`
+
+## 注意事项
+
+1. **完整回归** — 每轮回归必须重新执行全部测试，不可只跑失败项
+2. **收敛保障** — 如果连续 3 轮通过率无提升，主动分析瓶颈并报告
+3. **环境隔离** — 所有测试在临时目录中执行，不影响用户环境
+4. **每步即时写入日志** — 每执行一步都必须在执行完毕后立即将原始输入、原始输出、判断追加到 `.qa/<session>/qa-log-roundN.md`。严禁积攒到执行结束后再回忆填写。日志是给人类审查用的第一手证据链，事后重建的日志不可信。
