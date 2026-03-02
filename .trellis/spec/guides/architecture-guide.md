@@ -147,7 +147,68 @@ Manager Agent 通过 ACP 与 ClientNode Core 通信，职责**仅限于**：
 > Worker 被 ACP 启动后，通过 CLI 命令（直接 shell exec 或 ACP terminal/create）与 Node 交互进行任务操作。
 > ACP 提供标准化 Agent 能力（文件读写、终端执行、权限控制）；CLI 提供 AgentDispatch 特有的结构化操作。
 
-### 6. 多层鉴权架构 [NEW 2026-03-01]
+### 6. Worker 并发：虚拟 Worker 展开模式 [NEW 2026-03-02]
+
+**决策**：通过 `maxConcurrency` 配置让单个 Agent 同时处理多个任务，内部实现为**注册阶段展开多个虚拟 Worker**，而非改造 WorkerManager 状态机。
+
+**配置**：
+
+```json
+{
+  "id": "worker-review",
+  "type": "worker",
+  "command": "node",
+  "args": ["review-agent.js"],
+  "workDir": "./agents/review",
+  "maxConcurrency": 3,
+  "capabilities": ["code-review"]
+}
+```
+
+**展开规则**：
+
+```
+maxConcurrency: 1 (默认) → 不展开，行为完全不变
+maxConcurrency: 3        → 内部注册 worker-review:0, :1, :2 三个虚拟 Worker
+```
+
+每个虚拟 Worker 是独立的 `WorkerState` 实例，复用现有 `idle | busy | crashed | restarting` 状态机。
+
+**为什么不用多任务槽模型**：
+
+| 维度 | ❌ 单 Worker 多任务槽 | ✅ 虚拟 Worker 展开 |
+|------|----------------------|---------------------|
+| WorkerState | 需改为 `Map<taskId, ...>` + 新增 `partial` 状态 | **不变**，复用 `idle`/`busy` |
+| 分发逻辑 | 需改为槽位计数 | **不变**，`status !== 'idle'` 直接生效 |
+| 崩溃处理 | 需按进程级别拆分 | **不变**，每个虚拟 Worker 独立生命周期 |
+| 改动量 | 大（核心状态机重构） | 小（注册展开 + 上报聚合） |
+
+**目录策略 — 共享 workDir + 隔离产物目录**：
+
+```
+{workDir}/                          ← Agent 共享根目录（保留身份、上下文、skills）
+  .dispatch/
+    output/{taskId-short-1}/        ← 任务 1 的产物
+    output/{taskId-short-2}/        ← 任务 2 的产物
+    input/{taskId-short-1}/         ← 任务 1 的附件
+    input/{taskId-short-2}/         ← 任务 2 的附件
+```
+
+> **⚠️ 不能给每个并发进程独立 workDir**。Agent 的 skills、AGENTS.md、.cursor/rules/ 等上下文文件都在 workDir 中，独立 workDir 会导致 Agent 丧失自身身份和能力。
+
+> **⚠️ 多进程共享 workDir 时存在文件写入冲突风险**。涉及 git 操作、锁文件等场景建议 `maxConcurrency` 保持 1，或由 Agent 自行实现锁机制。
+
+**Server 端上报聚合**：虚拟 Worker 各自独立上报，通过 `groupId` 字段聚合展示：
+
+```
+Dashboard: worker-review  [██░]  2/3 busy  |  capabilities: code-review
+```
+
+**Tag 匹配**：分发规则中 `targetAgentId: "worker-review"` 需匹配同组所有虚拟 Worker（`worker-review:0`, `:1`, `:2`）。
+
+**关联 Issue**: [#11](https://github.com/blackplume233/AgentDispatch/issues/11)
+
+### 7. 多层鉴权架构 [NEW 2026-03-01]
 
 **决策**：三层 Token 鉴权，从外到内递进
 
@@ -192,7 +253,7 @@ ClientNode 为每个 Worker 进程发放 `wt_<uuid>` 格式的临时 Token，注
 - 每个 Token 绑定 `(agentId, taskId)`，不可跨进程复用
 - 进程退出后 Token 自动失效
 
-### 7. IPC 通信 (CLI ↔ ClientNode)
+### 8. IPC 通信 (CLI ↔ ClientNode)
 
 **决策**：Named Pipe (Windows) / Unix Domain Socket (Linux/macOS)
 
@@ -207,7 +268,7 @@ ClientNode 为每个 Worker 进程发放 `wt_<uuid>` 格式的临时 Token，注
 - IPC 路径由配置自动适配平台（见 `config-spec.md` § IPC 路径平台默认值）
 - 代码中**不做** `if (win32) { ... } else { ... }` 分支处理 IPC 连接逻辑，仅在路径生成时区分平台
 
-### 8. 全量操作日志落盘
+### 9. 全量操作日志落盘
 
 **决策**：Server 和 Client 所有操作无遗漏记录到日志文件
 
@@ -347,6 +408,22 @@ Server ────[check: 15s]──────→ 标记超时 Client 为 off
 - 每个 ClientNode 可以自定义 Worker 的启动 prompt
 - 模板支持变量替换（任务信息、Agent 配置等）
 - 允许运行时修改，下次启动 Worker 生效
+
+### Server Manager AI（规划中） [NEW 2026-03-02]
+
+在 Server 端引入可选的 AI 预处理管道，在任务创建时智能增强 title / description / tags：
+
+```
+API Request → [Auth] → [Server Manager AI (可选)] → TaskService.createTask → Store
+```
+
+- 通过 `server.ai.enabled` 配置开关控制，默认关闭
+- AI 处理失败时 graceful fallback，使用原始数据创建任务
+- 处理结果记录审计日志
+
+与 Client 端 Manager 的区别：Client Manager 负责**分发建议**（任务已创建后的路由），Server Manager AI 负责**元数据增强**（任务创建时的预处理）。
+
+**关联 Issue**: [#10](https://github.com/blackplume233/AgentDispatch/issues/10)
 
 ### Agent 类型扩展
 

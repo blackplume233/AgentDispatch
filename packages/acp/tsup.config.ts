@@ -1,10 +1,10 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/main.ts'],
+  entry: ['src/index.ts'],
   format: ['esm'],
   dts: true,
   clean: true,
   sourcemap: true,
-  external: ['@agentdispatch/shared', '@agentdispatch/acp', 'adm-zip'],
+  external: ['@agentdispatch/shared'],
 });

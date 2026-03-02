@@ -1,8 +1,7 @@
-import { Readable, Writable } from 'node:stream';
 import type { Task, AgentConfig, ClientConfig, InteractionLogEntry } from '@agentdispatch/shared';
-import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION, RequestError } from '@agentclientprotocol/sdk';
-import type { StopReason } from '@agentclientprotocol/sdk';
-import { AgentProcess } from './agent-process.js';
+import { RequestError } from '@agentclientprotocol/sdk';
+import type { ClientSideConnection, StopReason } from '@agentclientprotocol/sdk';
+import { createAcpConnection, AgentProcess } from '@agentdispatch/acp';
 import { DispatchAcpClient } from './dispatch-acp-client.js';
 import { TaskWorkflowRunner } from '../workflow/task-workflow-runner.js';
 import { InitialTaskPass } from '../workflow/passes/initial-task-pass.js';
@@ -50,20 +49,6 @@ export class AcpController {
       extraEnv['DISPATCH_IPC_PATH'] = this._nodeConfig.ipc.path;
     }
 
-    const agentProcess = new AgentProcess(agentConfig, {
-      onExit: (code, signal) => {
-        this.processes.delete(agentConfig.id);
-        this.events.onAgentExited(agentConfig.id, code, signal);
-      },
-      onStderr: (data) => {
-        this.events.onAgentError(agentConfig.id, data);
-      },
-    }, extraEnv);
-
-    const { stdin, stdout } = agentProcess.start();
-    this.processes.set(agentConfig.id, agentProcess);
-    this.events.onAgentStarted(agentConfig.id, agentProcess.getPid());
-
     const acpClient = new DispatchAcpClient(
       agentConfig,
       (entries) => { this.events.onLogBatch(agentConfig.id, task.id, entries); },
@@ -71,25 +56,10 @@ export class AcpController {
     );
     this.clients.set(agentConfig.id, acpClient);
 
-    const output = Writable.toWeb(stdin as import('node:stream').Writable);
-    const input = Readable.toWeb(stdout as import('node:stream').Readable);
-    const stream = ndJsonStream(
-      output as WritableStream<Uint8Array>,
-      input as ReadableStream<Uint8Array>,
-    );
-
-    const connection = new ClientSideConnection(
-      (_agent) => acpClient,
-      stream,
-    );
-    this.connections.set(agentConfig.id, connection);
-
-    // Record the prompt as a log entry
     acpClient.flushLogs();
-
     this.events.onProgress(agentConfig.id, task.id, 'Initializing agent...');
 
-    void this.runAcpSession(agentConfig, task, connection, acpClient, outputDir, inputDir, scanWorkDir).catch((err) => {
+    void this.runAcpSession(agentConfig, task, acpClient, extraEnv, outputDir, inputDir, scanWorkDir).catch((err) => {
       const msg = err instanceof Error ? err.message : String(err);
       this.events.onAgentError(agentConfig.id, `ACP session error: ${msg}`);
     });
@@ -98,49 +68,47 @@ export class AcpController {
   private async runAcpSession(
     agentConfig: AgentConfig,
     task: Task,
-    connection: ClientSideConnection,
     acpClient: DispatchAcpClient,
+    extraEnv: Record<string, string>,
     outputDir?: string,
     inputDir?: string,
     scanWorkDir?: (dir: string) => Promise<string[]>,
   ): Promise<void> {
     try {
-      const caps = agentConfig.acpCapabilities;
-      await connection.initialize({
-        protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: {
-          fs: caps?.fs ? {
-            readTextFile: caps.fs.readTextFile,
-            writeTextFile: caps.fs.writeTextFile,
-          } : undefined,
-          terminal: caps?.terminal,
-        },
-        clientInfo: {
-          name: 'AgentDispatch',
-          version: '0.0.1',
-        },
-      });
-
-      let session;
+      let handle;
       try {
-        session = await connection.newSession({
-          cwd: agentConfig.workDir,
-          mcpServers: [],
+        handle = await createAcpConnection({
+          agentConfig,
+          acpClient,
+          extraEnv,
+          processEvents: {
+            onExit: (code, signal) => {
+              this.processes.delete(agentConfig.id);
+              this.events.onAgentExited(agentConfig.id, code, signal);
+            },
+            onStderr: (data) => {
+              this.events.onAgentError(agentConfig.id, data);
+            },
+          },
+          clientInfo: { name: 'AgentDispatch', version: '0.0.1' },
         });
-      } catch (sessionErr: unknown) {
-        if (sessionErr instanceof RequestError && sessionErr.code === -32000) {
+      } catch (connErr: unknown) {
+        if (connErr instanceof RequestError && (connErr as { code?: number }).code === -32000) {
           this.events.onAgentError(agentConfig.id, 'Agent requires authentication. Run "claude /login" first.');
-          throw sessionErr;
         }
-        throw sessionErr;
+        throw connErr;
       }
+
+      this.processes.set(agentConfig.id, handle.process);
+      this.connections.set(agentConfig.id, handle.connection);
+      this.events.onAgentStarted(agentConfig.id, handle.process.getPid());
 
       const effectiveOutputDir = outputDir ?? agentConfig.workDir;
       const scanFn = scanWorkDir ?? (async () => [] as string[]);
 
       const ctx: WorkflowContext = {
-        connection,
-        sessionId: session.sessionId,
+        connection: handle.connection,
+        sessionId: handle.sessionId,
         task,
         agentConfig,
         outputDir: effectiveOutputDir,

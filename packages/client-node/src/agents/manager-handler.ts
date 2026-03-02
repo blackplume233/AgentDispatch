@@ -1,8 +1,6 @@
-import { Readable, Writable } from 'node:stream';
-import type { Client as AcpClient, SessionNotification, RequestPermissionRequest, RequestPermissionResponse, ReadTextFileRequest, ReadTextFileResponse, WriteTextFileRequest, WriteTextFileResponse, CreateTerminalRequest, CreateTerminalResponse, TerminalOutputRequest, TerminalOutputResponse, ReleaseTerminalRequest, ReleaseTerminalResponse, WaitForTerminalExitRequest, WaitForTerminalExitResponse, KillTerminalCommandRequest, KillTerminalCommandResponse } from '@agentclientprotocol/sdk';
-import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION } from '@agentclientprotocol/sdk';
+import type { Client as AcpClient, SessionNotification, RequestPermissionRequest, RequestPermissionResponse, ReadTextFileRequest, ReadTextFileResponse, WriteTextFileRequest, WriteTextFileResponse, CreateTerminalRequest, CreateTerminalResponse, TerminalOutputRequest, TerminalOutputResponse, ReleaseTerminalRequest, ReleaseTerminalResponse, WaitForTerminalExitRequest, WaitForTerminalExitResponse, KillTerminalCommandRequest, KillTerminalCommandResponse, ClientSideConnection } from '@agentclientprotocol/sdk';
 import type { AgentConfig, ClientConfig, Task, AgentInfo } from '@agentdispatch/shared';
-import { AgentProcess } from '../acp/agent-process.js';
+import { createAcpConnection, AgentProcess } from '@agentdispatch/acp';
 
 export interface DispatchAdvice {
   taskId: string;
@@ -91,57 +89,31 @@ export class ManagerHandler {
     this.agentId = agentConfig.id;
 
     try {
-      const agentProc = new AgentProcess(agentConfig, {
-        onExit: (_code, _signal) => {
-          this.log(`Manager agent ${agentConfig.id} exited (code=${_code})`);
-          this.setUnavailable();
-        },
-        onStderr: (data) => {
-          this.log(`Manager agent stderr: ${data.trim()}`);
-        },
-      });
-
-      const { stdin, stdout } = agentProc.start();
-      this.agentProcess = agentProc;
-
       const mgrClient = new ManagerAcpClient();
       this.managerClient = mgrClient;
 
-      const output = Writable.toWeb(stdin as import('node:stream').Writable);
-      const input = Readable.toWeb(stdout as import('node:stream').Readable);
-      const stream = ndJsonStream(
-        output as WritableStream<Uint8Array>,
-        input as ReadableStream<Uint8Array>,
-      );
-
-      const connection = new ClientSideConnection(
-        (_agent) => mgrClient,
-        stream,
-      );
-      this.connection = connection;
-
-      const caps = agentConfig.acpCapabilities;
-      await connection.initialize({
-        protocolVersion: PROTOCOL_VERSION,
-        clientCapabilities: {
-          fs: caps?.fs ? {
-            readTextFile: caps.fs.readTextFile,
-            writeTextFile: caps.fs.writeTextFile,
-          } : undefined,
-          terminal: caps?.terminal,
+      const handle = await createAcpConnection({
+        agentConfig,
+        acpClient: mgrClient,
+        processEvents: {
+          onExit: (_code, _signal) => {
+            this.log(`Manager agent ${agentConfig.id} exited (code=${_code})`);
+            this.setUnavailable();
+          },
+          onStderr: (data) => {
+            this.log(`Manager agent stderr: ${data.trim()}`);
+          },
         },
         clientInfo: { name: 'AgentDispatch-Manager', version: '0.0.1' },
       });
 
-      const session = await connection.newSession({
-        cwd: agentConfig.workDir,
-        mcpServers: [],
-      });
-      this.sessionId = session.sessionId;
+      this.agentProcess = handle.process;
+      this.connection = handle.connection;
+      this.sessionId = handle.sessionId;
       this.available = true;
 
-      this.log(`Manager agent ${agentConfig.id} started (pid=${agentProc.getPid()})`);
-      this.onAudit('manager.started', { agentId: agentConfig.id, pid: agentProc.getPid() });
+      this.log(`Manager agent ${agentConfig.id} started (pid=${handle.process.getPid()})`);
+      this.onAudit('manager.started', { agentId: agentConfig.id, pid: handle.process.getPid() });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.log(`Failed to start Manager agent: ${msg}`);

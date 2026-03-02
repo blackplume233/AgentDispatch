@@ -1314,6 +1314,80 @@ handleWorkerExit(agentId, exitCode) {
 }
 ```
 
+### Server Manager AI 预处理管道（规划中） [NEW 2026-03-02]
+
+> **Problem**: 用户通过 REST API 提交的任务经常 title 模糊、description 不完整、tags 缺失，导致 tag-auto 分发模式命中率低。
+
+**Pattern**: 在 `TaskService.createTask` 前插入可选的 AI 预处理 pass：
+
+```typescript
+// task-ai-enhancer.ts
+class TaskAiEnhancer {
+  async enhance(dto: CreateTaskDTO): Promise<CreateTaskDTO> {
+    if (!this.enabled) return dto;
+
+    try {
+      const enhanced = await Promise.race([
+        this.callAi(dto),
+        this.timeout(),
+      ]);
+      return {
+        ...dto,
+        title: enhanced.title ?? dto.title,
+        description: enhanced.description ?? dto.description,
+        tags: [...new Set([...dto.tags, ...(enhanced.suggestedTags ?? [])])],
+        metadata: {
+          ...dto.metadata,
+          aiAssisted: true,
+          originalTitle: dto.title,
+        },
+      };
+    } catch {
+      // Graceful fallback: AI 失败不阻塞任务创建
+      return dto;
+    }
+  }
+}
+```
+
+**关键约束**：
+- 默认关闭（`server.ai.enabled: false`），不影响现有行为
+- 超时后 fallback 到原始数据（默认 10s）
+- 审计日志记录 AI 处理结果（成功/失败/超时）
+- AI 增强的字段在 `metadata` 中标记来源，便于追溯
+
+**关联 Issue**: [#10](https://github.com/blackplume233/AgentDispatch/issues/10)
+**配置详情**: 见 `config-spec.md` § ServerConfig.ai
+
+### 虚拟 Worker 展开模式（规划中） [NEW 2026-03-02]
+
+> **Problem**: 当前每个 Worker 是单任务模型。I/O 密集型任务（如等待 LLM 响应）下资源利用率低，需要配置多个相同 Worker 来提升吞吐。
+
+**Pattern**: `maxConcurrency > 1` 的 AgentConfig 在注册阶段展开为多个虚拟 Worker：
+
+```typescript
+function expandAgentConfig(config: AgentConfig): AgentConfig[] {
+  const count = config.maxConcurrency ?? 1;
+  if (count <= 1) return [config];
+
+  return Array.from({ length: count }, (_, i) => ({
+    ...config,
+    id: `${config.id}:${i}`,
+    _groupId: config.id,
+    maxConcurrency: 1,
+  }));
+}
+```
+
+**优势**：WorkerManager、Dispatcher、AcpController 的现有逻辑**不需要修改**。
+
+**目录隔离**：所有虚拟 Worker 共享 workDir（保留 Agent 上下文），仅产物目录按任务 ID 隔离。
+
+**Don't**：给每个并发进程创建独立 workDir — Agent 会丢失 skills、rules 等上下文。
+
+**关联 Issue**: [#11](https://github.com/blackplume233/AgentDispatch/issues/11)
+**架构设计**: 见 `guides/architecture-guide.md` § 6. Worker 并发
+
 ### 防御性编程
 
 - 所有外部输入必须校验（使用 zod 或类似库）
