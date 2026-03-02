@@ -40,6 +40,7 @@
 | 2026-03-01 | auth.tokens 支持 `{ token, role }` 格式；新增 `operator` 角色（只读+创建/删除，禁止 worker 操作）；受限端点返回 `403 FORBIDDEN`；`/auth/me` 返回 `role` 字段                                                                                                                                                                                  | [CHANGED] | Server                                |
 | 2026-03-01 | 新增 Auth 路由（login/logout/me）；所有 API 启用可选 Bearer Token 鉴权；`/health` 返回体新增 `authEnabled` 字段；新增 `UNAUTHORIZED` 错误码                                                                                                                                                                                                   | [CHANGED] | Server, ClientNode, Dashboard         |
 | 2026-03-02 | AgentRegistration/AgentInfo 新增 `groupId?: string` 字段（虚拟 Worker 展开分组标识）；AgentRegistration 新增 `maxConcurrency?`/`presetPrompt?` 字段；Server `register()` 持久化 groupId；`PATCH /clients/:id/agents` 保留 groupId | [CHANGED] | Server, ClientNode, Dashboard |
+| 2026-03-02 | 任务执行鲁棒性强化 (#13)：`handleTaskCompletion` 重试+fallback cancel+条件性 idle 标记；per-task claim 断路器（3 次上限）；Client reconnect 孤儿任务回收；`atomicWrite` rename EPERM 重试；`stop()` 优雅等待 pending completions；新增 `POST /tasks/:id/force-release` admin-only 端点；心跳交叉验证（Server 对比 AgentInfo.currentTaskId 与任务归属自动释放孤儿任务） | [CHANGED] | Server, ClientNode, Dashboard |
 | 2026-02-28 | 初始化全部接口定义                                                                                                                                                                                                                                                                                                                            | NEW       | 全部模块                              |
 
 ---
@@ -166,6 +167,7 @@ IPC 请求带 token
 | PATCH  | `/tasks/:id`                       | 更新任务（进度、状态等）          | `UpdateTaskDTO`                                     | `Task`             |
 | POST   | `/tasks/:id/claim`                 | 申领任务                          | `{ clientId, agentId }`                             | `Task`             |
 | POST   | `/tasks/:id/release`               | 释放任务（Worker 中断时）         | `{ clientId, reason }`                              | `Task`             |
+| POST   | `/tasks/:id/force-release`         | 强制释放任务（admin-only）[NEW 2026-03-02] | `{ reason? }`                                       | `Task`             |
 | POST   | `/tasks/:id/complete`              | 完成任务（需上传产物）            | `multipart: CompleteTaskDTO + files`                | `Task`             |
 | POST   | `/tasks/:id/cancel`                | 取消任务                          | `{ clientId?, reason? }` [CHANGED 2026-03-01]       | `Task`             |
 | DELETE | `/tasks/:id`                       | 删除任务                          | -                                                   | `void`             |
@@ -175,6 +177,10 @@ IPC 请求带 token
 #### Task 所有权守卫 [NEW 2026-03-01]
 
 当任务处于 `claimed` 或 `in_progress` 状态时，`release`、`progress`、`cancel` 操作会校验请求方 `clientId` 是否为任务 owner（`task.claimedBy.clientId`）。非 owner 请求返回 `409 TASK_ALREADY_CLAIMED`。
+
+#### Admin 强制释放 [NEW 2026-03-02]
+
+`POST /tasks/:id/force-release` 跳过所有权检查，允许 admin 将任何 `claimed` 或 `in_progress` 任务强制释放回 `pending`。用于自动化恢复机制（心跳超时、Client 重连孤儿回收）全部失败后的人工兜底。仅 `admin` 角色可调用（`operator` 和 `client` 返回 `403`）。
 
 | 端点 | clientId 来源 | 校验行为 |
 |------|--------------|---------|

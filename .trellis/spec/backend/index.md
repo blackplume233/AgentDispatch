@@ -465,7 +465,19 @@ async function atomicWrite(filePath: string, content: string | Buffer): Promise<
   } finally {
     await fd.close();
   }
-  await fs.rename(tmpPath, filePath); // 原子操作
+  // rename 带 EPERM 重试（Windows 上杀毒/索引服务可能短暂锁定文件）
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await fs.rename(tmpPath, filePath);
+      return;
+    } catch (err) {
+      if (err.code === 'EPERM' && attempt < 2) {
+        await sleep(50 * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+  }
 }
 ```
 
@@ -1272,6 +1284,32 @@ const clientService = new ClientService(clientStore, queue, config);
 clientService.setTaskService(taskService); // 打破循环依赖
 ```
 
+### 心跳交叉验证：Agent-Task 一致性检查 [NEW 2026-03-02]
+
+> **⚠️ Client 在线不等于所有任务正常。Agent 可能崩溃但 Client 进程仍在发心跳。**
+
+**Problem**: Client 在线（持续发心跳），但某个 Agent 已崩溃。心跳中该 Agent 显示 `idle`（无 `currentTaskId`），而 Server 侧对应任务仍显示 `in_progress` + `claimedBy: { clientId, agentId }`。仅靠心跳超时无法发现这类孤儿。
+
+**Solution — crossValidateOnlineClients()**:
+
+在 `checkHeartbeats()` 中，对所有在线 Client 做第二轮扫描：
+
+1. 为每个在线 Client 建立 `agentId → currentTaskId` 映射（来自最近一次心跳上报的 `AgentInfo[]`）
+2. 遍历所有 `claimed`/`in_progress` 任务，找到属于该 Client 的任务
+3. 对比：Server 认为 Agent X 在跑 Task A，但心跳显示 Agent X 的 `currentTaskId` 不匹配（或为空）
+4. 如果 `claimedAt` 距今超过 grace period（`heartbeatTimeout * 2`，默认 120s），释放该任务
+
+**Grace period 的作用**：从 claim 到 Agent 启动、首次心跳包含新 `currentTaskId`，有一个时间窗口。Grace period 避免在这个窗口内误释放。
+
+**与其他机制的协作**：
+
+| 场景 | 哪层处理 |
+|------|----------|
+| Client 整个进程挂掉 | Layer 0 — 心跳超时 |
+| Client 在线，Agent 崩溃 | Layer 0 — 交叉验证 |
+| Client 在线，Agent 崩溃，Client 自己已 release | Layer 1 — Client 自愈（先执行，交叉验证是兜底） |
+| 以上全部失败 | Layer 4 — Dashboard 手动 force-release |
+
 ### Worker 任务生命周期：idle 标记顺序 [NEW 2026-03-01]
 
 > **⚠️ Worker 只能在任务释放/完成**之后**才能标记为 idle。先标记 idle 再释放任务会导致 poller 在任务释放完成前抢跑认领下一个任务。**
@@ -1336,6 +1374,39 @@ handleWorkerExit(agentId, exitCode) {
   // exitCode != 0: 崩溃处理...
 }
 ```
+
+### 任务执行鲁棒性：四层防御体系 [NEW 2026-03-02]
+
+> **背景**：Agent 可能因崩溃、超时、网络断开等原因中止，导致 Client 和 Server 状态不一致。以下四层机制协同确保系统自愈。
+
+**Layer 1 — Client 自愈（node.ts）**：
+
+- `handleTaskCompletion` 对 complete/release 操作执行最多 2 次重试（间隔 1s）；完成失败后 fallback 到 `cancelTask`
+- 条件性 idle 标记：仅当 Server 确认状态变更后才 `markWorkerIdle`，否则保持 busy 等待心跳超时
+- `trackCompletion` 追踪所有 fire-and-forget 的 completion promise，`stop()` 优雅等待最多 10s
+
+**Layer 2 — 断路器（node.ts）**：
+
+- `taskClaimCounts` 记录每个 taskId 的 claim 次数（TTL 5分钟）
+- 超过 `MAX_CLAIMS_PER_TASK`（3 次）的任务视为 poisoned，`dispatchPendingTasks` 跳过
+- 防止 crash-claim-release 无限循环占满所有 Worker
+
+**Layer 3 — 孤儿回收（node.ts）**：
+
+- `reconcileOrphanedTasks` 在 `register()` 和 `reconnect()` 成功后执行
+- 列出所有 claimed/in_progress 且 `claimedBy.clientId` 为本节点的任务
+- 如果对应任务没有活跃 Worker 正在处理，调用 `releaseTask` 释放
+
+**Layer 4 — 人工兜底（Server + Dashboard）**：
+
+- `POST /tasks/:id/force-release`（admin-only）跳过所有权检查，直接将 claimed/in_progress 任务释放回 pending
+- Dashboard 任务详情页显示"强制释放"按钮（仅在 claimed/in_progress 状态下可见）
+
+**Layer 0 — Server 自治**（已有 + 增强）：
+
+- `checkHeartbeats()` 每 15s 扫描一次，超时 Client 的任务自动释放
+- `crossValidateOnlineClients()`：在同一扫描周期内，对在线 Client 做 AgentInfo 交叉验证 —— 如果 Server 认为 Agent X 在跑 Task A，但心跳上报的 AgentInfo 显示 Agent X 没有 currentTaskId（或指向不同任务），且 claimedAt 距今超过 grace period（`heartbeatTimeout * 2`，默认 120s），则自动释放该任务
+- `atomicWrite` rename 操作增加 EPERM 重试（3 次，指数退避 50ms/100ms/150ms）
 
 ### Server Manager AI 预处理管道（规划中） [NEW 2026-03-02]
 

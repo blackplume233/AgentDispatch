@@ -135,6 +135,19 @@ export function registerTaskRoutes(
     },
   );
 
+  const adminOnly = requireRole('admin');
+
+  app.post<{ Params: { id: string }; Body: { reason?: string } }>(
+    '/api/v1/tasks/:id/force-release',
+    { preHandler: [adminOnly] },
+    async (request) => {
+      return taskService.forceReleaseTask(
+        request.params.id,
+        (request.body as { reason?: string })?.reason ?? 'Admin force release',
+      );
+    },
+  );
+
   app.post<{ Params: { id: string }; Body: ProgressDTO }>(
     '/api/v1/tasks/:id/progress',
     { preHandler: [workerOnly] },

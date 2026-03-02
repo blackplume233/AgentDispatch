@@ -9,7 +9,7 @@ import {
   ArrowLeft, FileArchive, FileJson, Clock, User, Download, Paperclip,
   Eye, AlertCircle, Brain, MessageSquare, Wrench, Shield,
   FileText, Terminal, ListChecks, Info, ChevronDown, ChevronRight,
-  XCircle,
+  XCircle, RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -96,6 +96,19 @@ export function TaskDetailPage(): React.ReactElement {
     }
   }, [id, t, refetch]);
 
+  const isClaimedOrInProgress = !!task && (task.status === "claimed" || task.status === "in_progress");
+  const [forceReleasing, setForceReleasing] = useState(false);
+  const handleForceRelease = useCallback(async (): Promise<void> => {
+    if (!confirm(t("tasks.detail.forceReleaseConfirm"))) return;
+    setForceReleasing(true);
+    try {
+      await api.tasks.forceRelease(id);
+      await refetch();
+    } catch { /* ignore */ } finally {
+      setForceReleasing(false);
+    }
+  }, [id, t, refetch]);
+
   if (isLoading) {
     return (
       <div className="mx-auto max-w-4xl space-y-6">
@@ -139,15 +152,28 @@ export function TaskDetailPage(): React.ReactElement {
           <h2 className="text-2xl font-bold tracking-tight">{task.title}</h2>
         </div>
         {isActive && (
-          <Button
-            variant="destructive"
-            size="sm"
-            onClick={handleCancel}
-            disabled={cancelling}
-          >
-            <XCircle className="mr-1.5 h-3.5 w-3.5" />
-            {cancelling ? t("tasks.detail.cancelling") : t("tasks.detail.cancelTask")}
-          </Button>
+          <div className="flex items-center gap-2">
+            {isClaimedOrInProgress && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleForceRelease}
+                disabled={forceReleasing}
+              >
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                {forceReleasing ? t("tasks.detail.forceReleasing") : t("tasks.detail.forceRelease")}
+              </Button>
+            )}
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleCancel}
+              disabled={cancelling}
+            >
+              <XCircle className="mr-1.5 h-3.5 w-3.5" />
+              {cancelling ? t("tasks.detail.cancelling") : t("tasks.detail.cancelTask")}
+            </Button>
+          </div>
         )}
       </div>
 

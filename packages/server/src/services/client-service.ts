@@ -184,6 +184,7 @@ export class ClientService {
     const now = Date.now();
     const knownClientIds = new Set(clients.map((c) => c.id));
     const offlineClientIds: string[] = [];
+    const onlineClients: Client[] = [];
 
     for (const client of clients) {
       if (client.status === 'offline') {
@@ -205,23 +206,32 @@ export class ClientService {
           context: { clientId: client.id, name: client.name },
         });
         offlineClientIds.push(client.id);
+      } else {
+        onlineClients.push(client);
       }
     }
 
-    await this.releaseOrphanedTasks(offlineClientIds, knownClientIds);
+    if (!this.taskService) return;
+
+    const tasks = await this.taskService.listTasks();
+    const activeTasks = tasks.filter(
+      (t) => (t.status === 'claimed' || t.status === 'in_progress') && t.claimedBy?.clientId,
+    );
+
+    await this.releaseOrphanedTasks(activeTasks, offlineClientIds, knownClientIds);
+    await this.crossValidateOnlineClients(activeTasks, onlineClients, now);
   }
 
   private async releaseOrphanedTasks(
+    activeTasks: import('@agentdispatch/shared').Task[],
     offlineClientIds: string[],
     knownClientIds: Set<string>,
   ): Promise<void> {
     if (!this.taskService) return;
 
     const offlineSet = new Set(offlineClientIds);
-    const tasks = await this.taskService.listTasks();
 
-    const orphanedTasks = tasks.filter((t) => {
-      if (t.status !== 'claimed' && t.status !== 'in_progress') return false;
+    const orphanedTasks = activeTasks.filter((t) => {
       const claimClientId = t.claimedBy?.clientId;
       if (!claimClientId) return false;
       return offlineSet.has(claimClientId) || !knownClientIds.has(claimClientId);
@@ -244,6 +254,61 @@ export class ClientService {
           category: 'task',
           event: 'task.release.failed',
           context: { taskId: task.id, clientId },
+        });
+      }
+    }
+  }
+
+  private async crossValidateOnlineClients(
+    activeTasks: import('@agentdispatch/shared').Task[],
+    onlineClients: Client[],
+    now: number,
+  ): Promise<void> {
+    if (!this.taskService || onlineClients.length === 0 || activeTasks.length === 0) return;
+
+    const gracePeriod = this.heartbeatTimeout * 2;
+
+    const clientAgentMap = new Map<string, Map<string, string | undefined>>();
+    for (const client of onlineClients) {
+      const agentMap = new Map<string, string | undefined>();
+      for (const agent of client.agents) {
+        agentMap.set(agent.id, agent.currentTaskId);
+      }
+      clientAgentMap.set(client.id, agentMap);
+    }
+
+    for (const task of activeTasks) {
+      const clientId = task.claimedBy?.clientId;
+      const agentId = task.claimedBy?.agentId;
+      if (!clientId || !agentId) continue;
+
+      const agentMap = clientAgentMap.get(clientId);
+      if (!agentMap) continue;
+
+      const claimedTime = task.claimedAt ? new Date(task.claimedAt).getTime() : 0;
+      if (now - claimedTime < gracePeriod) continue;
+
+      const reportedTaskId = agentMap.get(agentId);
+      if (reportedTaskId === task.id) continue;
+
+      try {
+        const reason = `Heartbeat cross-validation: agent ${agentId} reports ${reportedTaskId ? `task ${reportedTaskId.slice(0, 8)}` : 'idle'}, expected task ${task.id.slice(0, 8)}`;
+        await this.taskService.releaseTask(task.id, { clientId, reason });
+        this.logger.warn('Released stale task via cross-validation', {
+          category: 'task',
+          event: 'task.released.cross_validation',
+          context: {
+            taskId: task.id,
+            clientId,
+            agentId,
+            reportedTaskId: reportedTaskId ?? null,
+          },
+        });
+      } catch {
+        this.logger.warn('Failed to release stale task via cross-validation', {
+          category: 'task',
+          event: 'task.release.cross_validation_failed',
+          context: { taskId: task.id, clientId, agentId },
         });
       }
     }

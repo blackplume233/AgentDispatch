@@ -55,6 +55,11 @@ export class ClientNode {
   private static readonly RECONNECT_BASE_DELAY = 2000;
   private static readonly RECONNECT_MAX_DELAY = 30000;
   private static readonly TOKEN_CACHE_TTL = 60_000;
+  private static readonly COMPLETION_MAX_RETRIES = 2;
+  private static readonly COMPLETION_RETRY_DELAY = 1000;
+  private static readonly MAX_CLAIMS_PER_TASK = 3;
+  private static readonly CLAIM_COUNT_TTL = 300_000;
+  private static readonly GRACEFUL_STOP_TIMEOUT = 10_000;
 
   private config: ClientConfig;
   private httpClient: ServerHttpClient;
@@ -77,6 +82,9 @@ export class ClientNode {
   private ipcTokenCache = new Map<string, TokenCacheEntry>();
   private workerTokens = new Map<string, WorkerToken>();
   private workerTokensByAgent = new Map<string, string>();
+  private taskClaimCounts = new Map<string, { count: number; firstClaimed: number }>();
+  private pendingCompletions = new Set<Promise<void>>();
+  private claimCountCleanupTimer: ReturnType<typeof setInterval> | null = null;
   private runtimeAgents: RuntimeAgentConfig[];
   private runtimeAgentsById = new Map<string, RuntimeAgentConfig>();
   private workerConfigsById = new Map<string, WorkerRuntimeConfig>();
@@ -118,7 +126,7 @@ export class ClientNode {
               ? 'Agent exited without completing task'
               : `Agent crashed with exit code ${code}`;
           this.log(`Releasing task ${taskId}: ${reason}`);
-          void this.handleTaskCompletion(agentId, taskId, 'cancelled');
+          this.trackCompletion(this.handleTaskCompletion(agentId, taskId, 'cancelled'));
         }
       },
       onAgentError: (agentId, error) => {
@@ -133,7 +141,7 @@ export class ClientNode {
           `Task ${taskId} completed by ${agentId}: ${stopReason}`,
           { agentId, taskId, stopReason },
         );
-        void this.handleTaskCompletion(agentId, taskId, stopReason);
+        this.trackCompletion(this.handleTaskCompletion(agentId, taskId, stopReason));
       },
       onLogBatch: (agentId, taskId, entries) => {
         void this.uploadTaskLogs(agentId, taskId, entries);
@@ -211,6 +219,8 @@ export class ClientNode {
     this.acpController.setClientId(this.client.id);
     this.recordClientLog('info', 'node.registered', `Registered as ${this.client.id}`);
     this.startHeartbeat();
+    this.startClaimCountCleanup();
+    await this.reconcileOrphanedTasks();
     this.poller.start();
     await this.startManagerIfConfigured();
     return this.client;
@@ -233,6 +243,19 @@ export class ClientNode {
     this.stopped = true;
     this.poller.stop();
     this.stopHeartbeat();
+    if (this.claimCountCleanupTimer) {
+      clearInterval(this.claimCountCleanupTimer);
+      this.claimCountCleanupTimer = null;
+    }
+
+    if (this.pendingCompletions.size > 0) {
+      this.log(`Waiting for ${this.pendingCompletions.size} pending task completion(s)...`);
+      await Promise.race([
+        Promise.allSettled([...this.pendingCompletions]),
+        new Promise((r) => setTimeout(r, ClientNode.GRACEFUL_STOP_TIMEOUT)),
+      ]);
+    }
+
     this.workerTokens.clear();
     this.workerTokensByAgent.clear();
     await this.managerHandler.stopManager();
@@ -365,6 +388,14 @@ export class ClientNode {
 
     try {
       for (const task of this.pendingTasks) {
+        const claimEntry = this.taskClaimCounts.get(task.id);
+        if (claimEntry && claimEntry.count >= ClientNode.MAX_CLAIMS_PER_TASK) {
+          this.log(
+            `Skipping poisoned task ${task.id.slice(0, 8)} (claimed ${claimEntry.count} times, circuit breaker active)`,
+          );
+          continue;
+        }
+
         const agents = this.buildAgentInfos();
         const decision = this.dispatcher.decide(task, agents);
 
@@ -413,6 +444,12 @@ export class ClientNode {
             `Claimed task "${task.title}" → ${resolvedTargetAgentId}`,
             { taskId: task.id, agentId: resolvedTargetAgentId },
           );
+
+          const prevClaim = this.taskClaimCounts.get(task.id);
+          this.taskClaimCounts.set(task.id, {
+            count: (prevClaim?.count ?? 0) + 1,
+            firstClaimed: prevClaim?.firstClaimed ?? Date.now(),
+          });
 
           this.workerManager.assignTask(resolvedTargetAgentId, task.id);
 
@@ -472,10 +509,37 @@ export class ClientNode {
       return;
     }
 
+    let serverAcknowledged = false;
+
     if (stopReason === 'end_turn') {
+      serverAcknowledged = await this.tryCompleteTask(agentId, taskId);
+      if (!serverAcknowledged) {
+        serverAcknowledged = await this.tryCancelTaskFallback(taskId, agentId);
+      }
+    } else {
+      serverAcknowledged = await this.tryReleaseTask(taskId, agentId, stopReason);
+    }
+
+    if (serverAcknowledged) {
+      this.markWorkerIdle(agentId);
+    } else {
+      this.log(
+        `Worker ${agentId} kept busy — task ${taskId.slice(0, 8)} may be orphaned, ` +
+          'awaiting server heartbeat timeout to reclaim',
+      );
+      this.recordClientLog('warn', 'task.orphan_risk', 'Server did not acknowledge task state change', {
+        taskId,
+        agentId,
+        stopReason,
+      });
+    }
+  }
+
+  private async tryCompleteTask(agentId: string, taskId: string): Promise<boolean> {
+    for (let attempt = 0; attempt < ClientNode.COMPLETION_MAX_RETRIES; attempt++) {
       try {
         await this.httpClient.reportProgress(taskId, {
-          clientId: this.client.id,
+          clientId: this.client!.id,
           agentId,
           progress: 0,
           message: 'Collecting artifacts...',
@@ -499,25 +563,63 @@ export class ClientNode {
 
         this.taskOutputDirs.delete(taskId);
         this.taskInputDirs.delete(taskId);
+        return true;
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.log(`Failed to complete task ${taskId.slice(0, 8)}: ${msg}`);
-        this.recordClientLog('error', 'task.completion_failed', msg, { taskId, agentId });
-      }
-    } else {
-      try {
-        await this.httpClient.releaseTask(taskId, {
-          clientId: this.client.id,
-          reason: `Agent stopped: ${stopReason}`,
+        this.log(
+          `Complete attempt ${attempt + 1}/${ClientNode.COMPLETION_MAX_RETRIES} failed for task ${taskId.slice(0, 8)}: ${msg}`,
+        );
+        this.recordClientLog('error', 'task.completion_failed', msg, {
+          taskId,
+          agentId,
+          attempt: attempt + 1,
         });
-        this.log(`Releasing task ${taskId}: ${stopReason}`);
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.log(`Failed to release task ${taskId.slice(0, 8)}: ${msg}`);
+        if (attempt < ClientNode.COMPLETION_MAX_RETRIES - 1) {
+          await new Promise((r) => setTimeout(r, ClientNode.COMPLETION_RETRY_DELAY));
+        }
       }
     }
+    return false;
+  }
 
-    this.markWorkerIdle(agentId);
+  private async tryCancelTaskFallback(taskId: string, agentId: string): Promise<boolean> {
+    try {
+      await this.httpClient.cancelTask(taskId, 'Completion failed after retries');
+      this.log(`Task ${taskId.slice(0, 8)} cancelled as fallback after completion failure`);
+      this.recordClientLog('warn', 'task.cancel_fallback', 'Task cancelled after completion failure', {
+        taskId,
+        agentId,
+      });
+      this.taskOutputDirs.delete(taskId);
+      this.taskInputDirs.delete(taskId);
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`Fallback cancel also failed for task ${taskId.slice(0, 8)}: ${msg}`);
+      return false;
+    }
+  }
+
+  private async tryReleaseTask(taskId: string, _agentId: string, stopReason: string): Promise<boolean> {
+    for (let attempt = 0; attempt < ClientNode.COMPLETION_MAX_RETRIES; attempt++) {
+      try {
+        await this.httpClient.releaseTask(taskId, {
+          clientId: this.client!.id,
+          reason: `Agent stopped: ${stopReason}`,
+        });
+        this.log(`Released task ${taskId.slice(0, 8)}: ${stopReason}`);
+        return true;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.log(
+          `Release attempt ${attempt + 1}/${ClientNode.COMPLETION_MAX_RETRIES} failed for task ${taskId.slice(0, 8)}: ${msg}`,
+        );
+        if (attempt < ClientNode.COMPLETION_MAX_RETRIES - 1) {
+          await new Promise((r) => setTimeout(r, ClientNode.COMPLETION_RETRY_DELAY));
+        }
+      }
+    }
+    return false;
   }
 
   private async addWorkerAtRuntime(raw: {
@@ -978,6 +1080,7 @@ export class ClientNode {
         this.acpController.setClientId(this.client.id);
         this.consecutiveHeartbeatFailures = 0;
         this.reconnecting = false;
+        await this.reconcileOrphanedTasks();
         this.poller.start();
         this.log(`Reconnected as ${this.client.id}`);
         this.recordClientLog('info', 'node.reconnected', `Reconnected as ${this.client.id}`);
@@ -993,6 +1096,7 @@ export class ClientNode {
               this.acpController.setClientId(this.client.id);
               this.consecutiveHeartbeatFailures = 0;
               this.reconnecting = false;
+              await this.reconcileOrphanedTasks();
               this.poller.start();
               this.log(`Reconnected (reused) as ${this.client.id}`);
               this.recordClientLog(
@@ -1019,6 +1123,70 @@ export class ClientNode {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+  }
+
+  private trackCompletion(promise: Promise<void>): void {
+    this.pendingCompletions.add(promise);
+    promise.finally(() => this.pendingCompletions.delete(promise));
+  }
+
+  private async reconcileOrphanedTasks(): Promise<void> {
+    if (!this.client) return;
+    try {
+      const allTasks = await this.httpClient.listTasks({});
+      const myOrphans = allTasks.filter(
+        (t) =>
+          (t.status === 'in_progress' || t.status === 'claimed') &&
+          t.claimedBy?.clientId === this.client!.id,
+      );
+      if (myOrphans.length === 0) return;
+
+      const activeTaskIds = new Set(
+        this.workerManager
+          .getAllWorkers()
+          .filter((w) => w.currentTaskId)
+          .map((w) => w.currentTaskId),
+      );
+
+      let released = 0;
+      for (const task of myOrphans) {
+        if (!activeTaskIds.has(task.id)) {
+          try {
+            await this.httpClient.releaseTask(task.id, {
+              clientId: this.client!.id,
+              reason: 'Orphan cleanup after client reconnect',
+            });
+            released++;
+            this.log(`Released orphaned task ${task.id.slice(0, 8)} (was ${task.status})`);
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.log(`Failed to release orphaned task ${task.id.slice(0, 8)}: ${msg}`);
+          }
+        }
+      }
+      if (released > 0) {
+        this.recordClientLog('info', 'task.orphan_cleanup', `Released ${released} orphaned task(s)`, {
+          released,
+          total: myOrphans.length,
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.log(`Orphan reconciliation failed: ${msg}`);
+    }
+  }
+
+  private startClaimCountCleanup(): void {
+    if (this.claimCountCleanupTimer) return;
+    this.claimCountCleanupTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [taskId, entry] of this.taskClaimCounts) {
+        if (now - entry.firstClaimed > ClientNode.CLAIM_COUNT_TTL) {
+          this.taskClaimCounts.delete(taskId);
+        }
+      }
+    }, 60_000);
+    this.claimCountCleanupTimer.unref();
   }
 
   private log(msg: string): void {

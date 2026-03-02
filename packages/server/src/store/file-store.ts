@@ -12,6 +12,8 @@ export class FileStore {
     await fs.promises.mkdir(this.baseDir, { recursive: true });
   }
 
+  private static readonly RENAME_MAX_RETRIES = 3;
+
   async atomicWrite(filePath: string, content: string): Promise<void> {
     const dir = path.dirname(filePath);
     await fs.promises.mkdir(dir, { recursive: true });
@@ -24,7 +26,20 @@ export class FileStore {
     } finally {
       await fd.close();
     }
-    await fs.promises.rename(tmpPath, filePath);
+
+    for (let attempt = 0; attempt < FileStore.RENAME_MAX_RETRIES; attempt++) {
+      try {
+        await fs.promises.rename(tmpPath, filePath);
+        return;
+      } catch (err: unknown) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === 'EPERM' && attempt < FileStore.RENAME_MAX_RETRIES - 1) {
+          await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 
   async readFile(filePath: string): Promise<string | null> {

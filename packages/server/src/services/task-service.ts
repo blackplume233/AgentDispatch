@@ -256,6 +256,48 @@ export class TaskService {
     return updated;
   }
 
+  async forceReleaseTask(taskId: string, reason: string): Promise<Task> {
+    const task = await this.getTask(taskId);
+
+    if (!isValidTransition(task.status, 'pending')) {
+      throw new ValidationError(
+        ErrorCode.TASK_INVALID_TRANSITION,
+        `Cannot force-release task in ${task.status} status`,
+      );
+    }
+
+    const updated: Task = {
+      ...task,
+      status: 'pending',
+      claimedBy: undefined,
+      claimedAt: undefined,
+      progress: undefined,
+      progressMessage: undefined,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.queue.enqueue({
+      type: 'task.force_release',
+      execute: async () => {
+        await this.store.save(updated);
+      },
+    });
+
+    this.logger.warn('Task force-released by admin', {
+      category: 'task',
+      event: 'task.force_released',
+      context: {
+        taskId,
+        previousStatus: task.status,
+        previousOwner: task.claimedBy?.clientId,
+        reason,
+      },
+    });
+
+    void this.fireCallback(updated);
+    return updated;
+  }
+
   async reportProgress(taskId: string, dto: ProgressDTO): Promise<Task> {
     const task = await this.getTask(taskId);
 

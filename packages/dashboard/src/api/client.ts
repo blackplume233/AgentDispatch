@@ -58,6 +58,8 @@ export const api = {
       return request<Task>("POST", "/tasks", input);
     },
     cancel: (id: string): Promise<Task> => request<Task>("POST", `/tasks/${id}/cancel`, {}),
+    forceRelease: (id: string, reason?: string): Promise<Task> =>
+      request<Task>("POST", `/tasks/${id}/force-release`, { reason: reason ?? "Admin force release" }),
     delete: (id: string): Promise<undefined> => request<undefined>("DELETE", `/tasks/${id}`),
     listArchived: (params?: { search?: string; page?: number; limit?: number }): Promise<TaskSummary[]> => {
       const parts: string[] = [];
