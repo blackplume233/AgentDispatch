@@ -536,10 +536,12 @@ export class ClientNode {
   }
 
   private async tryCompleteTask(agentId: string, taskId: string): Promise<boolean> {
+    if (!this.client) return false;
+    const clientId = this.client.id;
     for (let attempt = 0; attempt < ClientNode.COMPLETION_MAX_RETRIES; attempt++) {
       try {
         await this.httpClient.reportProgress(taskId, {
-          clientId: this.client!.id,
+          clientId,
           agentId,
           progress: 0,
           message: 'Collecting artifacts...',
@@ -601,10 +603,12 @@ export class ClientNode {
   }
 
   private async tryReleaseTask(taskId: string, _agentId: string, stopReason: string): Promise<boolean> {
+    if (!this.client) return false;
+    const clientId = this.client.id;
     for (let attempt = 0; attempt < ClientNode.COMPLETION_MAX_RETRIES; attempt++) {
       try {
         await this.httpClient.releaseTask(taskId, {
-          clientId: this.client!.id,
+          clientId,
           reason: `Agent stopped: ${stopReason}`,
         });
         this.log(`Released task ${taskId.slice(0, 8)}: ${stopReason}`);
@@ -1132,12 +1136,13 @@ export class ClientNode {
 
   private async reconcileOrphanedTasks(): Promise<void> {
     if (!this.client) return;
+    const clientId = this.client.id;
     try {
       const allTasks = await this.httpClient.listTasks({});
       const myOrphans = allTasks.filter(
         (t) =>
           (t.status === 'in_progress' || t.status === 'claimed') &&
-          t.claimedBy?.clientId === this.client!.id,
+          t.claimedBy?.clientId === clientId,
       );
       if (myOrphans.length === 0) return;
 
@@ -1153,7 +1158,7 @@ export class ClientNode {
         if (!activeTaskIds.has(task.id)) {
           try {
             await this.httpClient.releaseTask(task.id, {
-              clientId: this.client!.id,
+              clientId,
               reason: 'Orphan cleanup after client reconnect',
             });
             released++;
