@@ -985,6 +985,21 @@ echo "Task submitted. Worker will pick it up automatically."
 
 ---
 
+## Part 9: 生产部署注意事项
+
+部署 AgentDispatch 到远程服务器时，请注意以下关键事项。完整详情和排查步骤参见 [故障排查指南](../../docs/guide/troubleshooting.md)。
+
+| 主题 | 要点 |
+|------|------|
+| **进程管理** | 使用 pm2 / systemd / Docker，避免 `nohup` |
+| **远程 Dashboard** | 设置 `VITE_API_URL=http://<server-ip>:9800`；详见 [配置指南](../../docs/guide/configuration.md#dashboard-远程访问) |
+| **嵌套 Claude 会话** | 用包装脚本 `unset CLAUDECODE` 后再启动 Worker |
+| **inotify（Linux）** | 增加 `max_user_instances` 到 8192+ |
+| **CORS** | Server 已内置支持；反向代理不要重复添加 CORS 头 |
+| **部署检查清单** | 见 [troubleshooting.md — Deployment Checklist](../../docs/guide/troubleshooting.md#deployment-checklist) |
+
+---
+
 ## REST API 快速参考
 
 ### 任务管理

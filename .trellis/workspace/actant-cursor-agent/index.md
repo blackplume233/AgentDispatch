@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 2
-- **Last Active**: 2026-03-01
+- **Total Sessions**: 5
+- **Last Active**: 2026-03-02
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~69 | Active |
+| `journal-1.md` | ~178 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,9 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits |
 |---|------|-------|---------|
+| 5 | 2026-03-02 | Issue #9: Troubleshooting docs and doc dedup refactor | uncommitted |
+| 4 | 2026-03-01 | Fix CORS auth flicker on remote dashboard access (#8) | `195d242` |
+| 3 | 2026-03-01 | Fix CORS auth flicker on remote dashboard access (#8) | `195d242` |
 | 2 | 2026-03-01 | Release Readiness Audit + Feature Gap Fill | uncommitted |
 | 1 | 2026-03-01 | Timeline collapse and image preview | uncommitted |
 <!-- @@@/auto:session-history -->

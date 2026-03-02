@@ -1,0 +1,41 @@
+{
+  "id": "readme-deploy-docs",
+  "name": "readme-deploy-docs",
+  "title": "Update README and docs based on Issue #9 deployment experience",
+  "description": "",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "priority": "P2",
+  "creator": "actant-cursor-agent",
+  "assignee": "actant-cursor-agent",
+  "createdAt": "2026-03-02",
+  "completedAt": "2026-03-02",
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "relatedFiles": [],
+  "notes": ""
+}

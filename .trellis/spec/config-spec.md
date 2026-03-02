@@ -25,6 +25,7 @@
 | 2026-02-28 | ClientConfig 新增 `dispatchMode` 字段；Manager Agent 从必须改为按模式可选；DispatchRule 新增 `priority`；autoDispatch 新增 `fallbackAction` | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-03-01 | AgentConfig.command 新增 Common Mistake 警告：裸命令启动交互终端而非 ACP 模式；全部 14 个 Agent 命令经逐一核实修正 | [CHANGED] | ClientNode, Docs |
 | 2026-03-01 | AgentConfig.command 示例修正：Claude 需通过 `claude-agent-acp` 适配器、Codex 需通过 `codex-acp` 适配器；新增 ACP 兼容 Agent 完整列表引用 | [CHANGED] | ClientNode, Docs |
+| 2026-03-02 | 新增 `docs/guide/troubleshooting.md` 故障排查文档；README/SKILL/installation/ai-setup 各文档去重改为交叉引用；frontend spec 新增 API Proxy & Remote Access 章节 | [CHANGED] | Docs, Frontend Spec |
 | 2026-03-01 | Dashboard 远程访问配置：新增 `VITE_DASHBOARD_HOST`/`VITE_DASHBOARD_PORT`/`VITE_API_URL` 环境变量；Vite proxy 新增 `/health` 转发；Server 启动时 host 为全接口且 auth 未启用时输出安全警告 | [CHANGED] | Dashboard, Server |
 | 2026-03-01 | AgentConfig 新增 `env` 可选字段：允许在配置中声明注入子进程的环境变量（如 API Key、模型端点），优先级：process.env < agentConfig.env < 系统注入的 DISPATCH_* | [CHANGED] | ClientNode |
 | 2026-02-28 | AgentConfig 明确 ACP SDK 集成字段；新增 `acpCapabilities` 配置段；`command` 字段说明更新为 ACP Agent 启动命令 | [CHANGED] | ClientNode |

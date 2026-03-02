@@ -79,3 +79,13 @@ pnpm --filter @agentdispatch/dashboard dev
 ```
 
 Open `http://localhost:3000` in your browser. The dashboard proxies `/api` requests to `http://localhost:9800`, so ensure the server is running on the default port.
+
+### Remote Access
+
+To access the dashboard from other devices, set `VITE_API_URL` to the server's network address. See [Configuration — Dashboard Remote Access](configuration.md#dashboard-远程访问) for details.
+
+---
+
+## Deployment Notes
+
+For production deployments (process management, inotify limits, nested Claude sessions, port conflicts), see the [Troubleshooting Guide](troubleshooting.md).

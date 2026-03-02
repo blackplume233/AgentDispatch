@@ -102,6 +102,13 @@ curl http://localhost:9800/health
 **需要问用户的问题**（如果 API Key 未设置）：
 - "请设置 `{KEY_NAME}` 环境变量，或告诉我你的 API Key（我会帮你写入 .env）"
 
+#### 5.1 环境预检
+
+在继续之前，检查以下潜在问题（详见 [故障排查指南](troubleshooting.md)）：
+
+- **嵌套 Claude 会话**：如环境变量 `CLAUDECODE` 或 `CLAUDE_CODE` 存在，需创建包装脚本
+- **Linux inotify 限制**：如 `max_user_instances < 1024`，建议增加到 8192
+
 ### 6. 确定任务标签和分发模式
 
 **需要问用户的问题**：
@@ -185,6 +192,8 @@ pnpm --filter @agentdispatch/dashboard dev
 # Dashboard at http://localhost:3000
 ```
 
+**如果用户需要从其他设备访问 Dashboard**，询问 Server IP 并设置 `VITE_API_URL`。详见 [配置指南 — Dashboard 远程访问](configuration.md#dashboard-远程访问)。
+
 ### 11. 端到端验证
 
 创建一个测试任务，验证完整链路：
@@ -200,6 +209,9 @@ curl -X POST http://localhost:9800/api/v1/tasks \
 - Client Node 是否注册成功
 - Worker Agent 是否被正确启动
 - 测试任务是否被自动领取
+- Dashboard 是否可正常访问
+
+如果验证失败，参考 [故障排查指南](troubleshooting.md) 按问题类型排查。
 
 ---
 

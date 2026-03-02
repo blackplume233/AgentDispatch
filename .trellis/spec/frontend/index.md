@@ -128,6 +128,21 @@ QueryClientProvider → BrowserRouter → Shell → Routes
 
 ---
 
+## API Proxy & Remote Access [NEW 2026-03-02]
+
+Dashboard 通过 Vite dev server 代理 API 请求到 Server。代理行为由环境变量控制，详见 `config-spec.md` §5 Dashboard Configuration。
+
+| 代理路径 | 目标 | 说明 |
+|---------|------|------|
+| `/api/*` | `{VITE_API_URL}/api/*` | Server REST API |
+| `/health` | `{VITE_API_URL}/health` | 健康检查（auth 流程依赖） |
+
+> **Gotcha**: `VITE_API_URL` 默认为 `http://localhost:9800`。当用户从其他设备访问 Dashboard 时，浏览器将 `localhost` 解析为设备自身的 loopback 地址，导致 API 请求失败。表现为 auth 状态反复切换（login 页面闪烁）或 "Unable to connect to server"。
+>
+> 部署到非 localhost 环境时**必须**设置 `VITE_API_URL` 指向 Server 的网络地址。详见 [故障排查指南](../../../docs/guide/troubleshooting.md)。
+
+---
+
 ## Coding Standards
 
 ### 组件规范

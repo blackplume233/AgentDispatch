@@ -150,6 +150,42 @@ Each entry in `agents` has:
 
 ---
 
+## Dashboard 远程访问
+
+Dashboard 默认代理 API 请求到 `localhost:9800`。从其他设备访问时需显式配置。
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VITE_API_URL` | — (uses proxy to `localhost:9800`) | Server 完整地址（如 `http://192.168.1.100:9800`），设置后 Dashboard 直接请求此地址而非代理 |
+| `VITE_DASHBOARD_HOST` | `localhost` | Vite 监听地址，设为 `0.0.0.0` 允许外部访问 |
+
+**本机访问**（默认即可）：
+
+```bash
+pnpm --filter @agentdispatch/dashboard dev
+```
+
+**远程访问（开发模式）**：
+
+```bash
+VITE_API_URL=http://192.168.1.100:9800 \
+pnpm --filter @agentdispatch/dashboard dev --host 0.0.0.0
+```
+
+**远程访问（生产模式）**：
+
+```bash
+pnpm --filter @agentdispatch/dashboard build
+
+VITE_DASHBOARD_HOST=0.0.0.0 \
+VITE_API_URL=http://192.168.1.100:9800 \
+pnpm --filter @agentdispatch/dashboard preview --port 3000
+```
+
+> **注意**：Server 已内置 CORS 支持（`@fastify/cors`），跨域请求无需额外配置。如果使用反向代理（Nginx 等），避免重复添加 CORS 头导致浏览器拒绝。
+
+---
+
 ## Environment Variables
 
 | Variable | Applies to | Description |
@@ -169,6 +205,8 @@ Each entry in `agents` has:
 | `DISPATCH_NODE_CONFIG` | Client Node | Path to `client.config.json` |
 | `DISPATCH_TOKEN` | CLI, Worker | Auth token for API/IPC |
 | `DISPATCH_IPC_PATH` | Worker | IPC path (injected by Client Node) |
+| `VITE_API_URL` | Dashboard | Server URL for remote access |
+| `VITE_DASHBOARD_HOST` | Dashboard | Vite bind address (`0.0.0.0` for remote) |
 
 ---
 

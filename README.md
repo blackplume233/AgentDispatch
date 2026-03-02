@@ -234,7 +234,8 @@ pnpm clean          # 清理构建产物
 | 文档 | 说明 |
 |------|------|
 | [安装指南](docs/guide/installation.md) | 环境准备与组件启动 |
-| [配置指南](docs/guide/configuration.md) | Server / Client / Agent 配置详解 |
+| [配置指南](docs/guide/configuration.md) | Server / Client / Dashboard / Agent 配置详解 |
+| [故障排查](docs/guide/troubleshooting.md) | 部署常见问题与解决方案 |
 | [任务管理](docs/guide/task-management.md) | 任务创建、监控与交付 |
 | [分发模式](docs/guide/dispatch-modes.md) | tag-auto / manager / hybrid 详解 |
 | [认证鉴权](docs/guide/authentication.md) | Token、角色与安全 |
@@ -252,6 +253,19 @@ pnpm clean          # 清理构建产物
 | 环境变量 | — | `DISPATCH_*` 前缀，覆盖配置文件 |
 
 详见 [配置指南](docs/guide/configuration.md)。
+
+---
+
+## 故障排查
+
+| 问题 | 快速方案 |
+|------|---------|
+| 端口被占用 / 重复进程 | `lsof -i :9800` 找到并终止残留进程；使用 pm2 管理 |
+| Dashboard 远程访问 "Unable to connect" | 启动时设置 `VITE_API_URL=http://<server-ip>:9800` |
+| 嵌套 Claude 会话报错 | 用包装脚本 `unset CLAUDECODE` 后再启动 |
+| inotify 限制（Linux） | `sudo sysctl fs.inotify.max_user_instances=8192` |
+
+详见 [故障排查指南](docs/guide/troubleshooting.md) 和 [配置指南](docs/guide/configuration.md)。
 
 ---
 
