@@ -92,6 +92,8 @@ export const en = {
       forceReleaseConfirm: "Force release this task back to pending? The current worker will lose ownership.",
       forceReleasing: "Releasing...",
       interactionTimeline: "AI Interaction Timeline",
+      toolCallGroup: "{{name}} x{{count}}",
+      toolCallGroupExpand: "Show details",
       steps: "steps",
       noLogs: "No interaction logs yet",
       interactionTypes: {

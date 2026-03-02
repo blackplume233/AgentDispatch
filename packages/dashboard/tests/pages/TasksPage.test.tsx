@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '../helpers/render';
 import { TasksPage } from '@/pages/TasksPage';
@@ -12,6 +12,7 @@ const mockTasks = [
     priority: 'high',
     tags: ['backend', 'api'],
     progress: 0,
+    progressMessage: 'Waiting for worker assignment',
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
   },
@@ -22,6 +23,7 @@ const mockTasks = [
     priority: 'normal',
     tags: ['frontend'],
     progress: 50,
+    progressMessage: 'Rendering interaction timeline',
     createdAt: '2026-01-02T00:00:00Z',
     updatedAt: '2026-01-02T12:00:00Z',
   },
@@ -32,6 +34,7 @@ const mockTasks = [
     priority: 'low',
     tags: ['test'],
     progress: 100,
+    progressMessage: 'Completed successfully',
     createdAt: '2026-01-03T00:00:00Z',
     updatedAt: '2026-01-03T00:00:00Z',
   },
@@ -86,5 +89,18 @@ describe('TasksPage', () => {
     renderWithProviders(<TasksPage />);
     expect(screen.getByText('backend')).toBeInTheDocument();
     expect(screen.getByText('frontend')).toBeInTheDocument();
+  });
+
+  it('renders progress message text and no progress bars', () => {
+    renderWithProviders(<TasksPage />);
+    expect(screen.getByText('Waiting for worker assignment')).toBeInTheDocument();
+    expect(screen.getByText('Rendering interaction timeline')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+  });
+
+  it('shows pulse dot only for active tasks', () => {
+    const { container } = renderWithProviders(<TasksPage />);
+    const pulseDots = container.querySelectorAll('.animate-ping');
+    expect(pulseDots).toHaveLength(2);
   });
 });

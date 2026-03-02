@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge, PriorityBadge } from "@/components/common/status-badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import { Progress } from "@/components/ui/progress";
 import { CreateTaskDialog } from "@/components/CreateTaskDialog";
 import { useTasks, useArchivedTasks } from "@/hooks/use-tasks";
 import type { Task, TaskSummary, TaskStatus } from "@/types";
@@ -25,6 +24,19 @@ const KANBAN_COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: "in_progress", label: "In Progress" },
   { status: "completed", label: "Completed" },
 ];
+
+function isActiveTask(task: Pick<Task, "status">): boolean {
+  return !["completed", "failed", "cancelled"].includes(task.status);
+}
+
+function PulseGreenDot(): React.ReactElement {
+  return (
+    <span className="relative flex h-2.5 w-2.5 shrink-0" aria-hidden="true">
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+    </span>
+  );
+}
 
 export function TasksPage(): React.ReactElement {
   const { t } = useTranslation();
@@ -263,9 +275,10 @@ function KanbanColumn({ label, tasks }: { label: string; tasks: Task[] }): React
                     </Badge>
                   ))}
                 </div>
-                {task.progress != null && (
-                  <div className="mt-2">
-                    <Progress value={task.progress} className="h-1.5" />
+                {task.progressMessage && (
+                  <div className="mt-2 flex items-center gap-1.5">
+                    {isActiveTask(task) && <PulseGreenDot />}
+                    <span className="text-xs text-muted-foreground truncate">{task.progressMessage}</span>
                   </div>
                 )}
               </CardContent>
@@ -353,10 +366,10 @@ function TaskTable({ tasks }: { tasks: Task[] }): React.ReactElement {
                 </div>
               </TableCell>
               <TableCell>
-                {task.progress != null ? (
-                  <div className="flex items-center gap-2">
-                    <Progress value={task.progress} className="h-1.5 w-16" />
-                    <span className="text-xs text-muted-foreground">{task.progress}%</span>
+                {task.progressMessage ? (
+                  <div className="flex items-center gap-1.5">
+                    {isActiveTask(task) && <PulseGreenDot />}
+                    <span className="text-xs text-muted-foreground truncate max-w-[200px]">{task.progressMessage}</span>
                   </div>
                 ) : "—"}
               </TableCell>
@@ -370,3 +383,4 @@ function TaskTable({ tasks }: { tasks: Task[] }): React.ReactElement {
     </div>
   );
 }
+

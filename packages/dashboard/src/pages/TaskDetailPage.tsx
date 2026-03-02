@@ -28,14 +28,30 @@ import type { InteractionLogEntry, InteractionStepType, ArtifactFileEntry } from
 const STREAM_TYPES = new Set<InteractionStepType>(["text", "thinking", "prompt"]);
 const TOOL_TYPES = new Set<InteractionStepType>(["tool_call", "tool_call_update"]);
 
+interface ToolCallGroup {
+  kind: "tool_call_group";
+  toolName: string;
+  entries: InteractionLogEntry[];
+  timestamp: string;
+  metadata?: InteractionLogEntry["metadata"];
+}
+
+type MergedEntry = InteractionLogEntry | ToolCallGroup;
+
+function isToolCallGroup(entry: MergedEntry): entry is ToolCallGroup {
+  return "kind" in entry && entry.kind === "tool_call_group";
+}
+
 function isMergeable(a: InteractionLogEntry, b: InteractionLogEntry): boolean {
   if (a.metadata?.sessionId !== b.metadata?.sessionId) return false;
   if (a.type === b.type && STREAM_TYPES.has(a.type)) return true;
-  if (TOOL_TYPES.has(a.type) && TOOL_TYPES.has(b.type)) return true;
+  if (TOOL_TYPES.has(a.type) && TOOL_TYPES.has(b.type)) {
+    return a.metadata?.toolCallId === b.metadata?.toolCallId;
+  }
   return false;
 }
 
-function mergeLogs(entries: InteractionLogEntry[]): InteractionLogEntry[] {
+function mergeLevel1(entries: InteractionLogEntry[]): InteractionLogEntry[] {
   if (entries.length === 0) return entries;
   const merged: InteractionLogEntry[] = [];
   let current = entries[0] as InteractionLogEntry;
@@ -57,6 +73,48 @@ function mergeLogs(entries: InteractionLogEntry[]): InteractionLogEntry[] {
   return merged;
 }
 
+function groupToolCalls(entries: InteractionLogEntry[]): MergedEntry[] {
+  const grouped: MergedEntry[] = [];
+  let i = 0;
+
+  while (i < entries.length) {
+    const current = entries[i] as InteractionLogEntry;
+    if (!TOOL_TYPES.has(current.type) || !current.metadata?.toolName) {
+      grouped.push(current);
+      i++;
+      continue;
+    }
+
+    const start = i;
+    const toolName = current.metadata.toolName;
+    while (i < entries.length) {
+      const entry = entries[i] as InteractionLogEntry;
+      if (!TOOL_TYPES.has(entry.type) || entry.metadata?.toolName !== toolName) break;
+      i++;
+    }
+
+    const slice = entries.slice(start, i);
+    if (slice.length === 1) {
+      grouped.push(slice[0] as InteractionLogEntry);
+      continue;
+    }
+
+    grouped.push({
+      kind: "tool_call_group",
+      toolName,
+      entries: slice,
+      timestamp: (slice[0] as InteractionLogEntry).timestamp,
+      metadata: (slice[0] as InteractionLogEntry).metadata,
+    });
+  }
+
+  return grouped;
+}
+
+function mergeLogs(entries: InteractionLogEntry[]): MergedEntry[] {
+  return groupToolCalls(mergeLevel1(entries));
+}
+
 export function TaskDetailPage(): React.ReactElement {
   const { t } = useTranslation();
   const { id = "" } = useParams<{ id: string }>();
@@ -65,6 +123,7 @@ export function TaskDetailPage(): React.ReactElement {
 
   const isActive = !!task && !["completed", "failed", "cancelled"].includes(task.status);
   const { logs } = useTaskLogs(id, isActive);
+  const mergedLogs = mergeLogs(logs);
 
   useEffect(() => {
     if (!id || !isActive) return;
@@ -392,7 +451,7 @@ export function TaskDetailPage(): React.ReactElement {
             )}
             {!isActive && logs.length > 0 && (
               <Badge variant="secondary" className="ml-auto text-[10px] py-0 h-5 font-normal">
-                {mergeLogs(logs).length} {t("tasks.detail.steps")}
+                {mergedLogs.length} {t("tasks.detail.steps")}
               </Badge>
             )}
           </CardTitle>
@@ -401,8 +460,12 @@ export function TaskDetailPage(): React.ReactElement {
           <CardContent>
             {logs.length > 0 ? (
               <div className="space-y-3">
-                {mergeLogs(logs).map((entry) => (
-                  <InteractionEntry key={entry.id} entry={entry} />
+                {mergedLogs.map((entry, index) => (
+                  isToolCallGroup(entry) ? (
+                    <ToolCallGroupEntry key={`group-${entry.timestamp}-${index}`} group={entry} />
+                  ) : (
+                    <InteractionEntry key={entry.id} entry={entry} />
+                  )
                 ))}
               </div>
             ) : (
@@ -553,18 +616,14 @@ const STEP_STYLE: Record<InteractionStepType, { border: string; bg: string }> = 
 
 function InteractionEntry({ entry }: { entry: InteractionLogEntry }): React.ReactElement {
   const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(() => {
-    if (entry.type === "thinking") return false;
-    if (entry.type === "text" && entry.content.length > 800) return false;
-    return true;
-  });
+  const [expanded, setExpanded] = useState(() => entry.type === "text");
 
   const Icon = STEP_ICON[entry.type] ?? Info;
   const style = STEP_STYLE[entry.type] ?? { border: "border-l-gray-400", bg: "" };
   const time = new Date(entry.timestamp).toLocaleTimeString();
   const typeLabel = t(`tasks.detail.interactionTypes.${entry.type}` as string) || entry.type;
 
-  const isCollapsible = entry.content.length > 200 || entry.type === "thinking";
+  const isCollapsible = true;
 
   const useMarkdown = entry.type === "text" || entry.type === "thinking" || entry.type === "plan";
 
@@ -628,6 +687,39 @@ function InteractionEntry({ entry }: { entry: InteractionLogEntry }): React.Reac
       {!expanded && isCollapsible && entry.content && (
         <div className="px-4 py-2 text-xs text-muted-foreground truncate">
           {entry.content.slice(0, 120)}…
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolCallGroupEntry({ group }: { group: ToolCallGroup }): React.ReactElement {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const time = new Date(group.timestamp).toLocaleTimeString();
+
+  return (
+    <div className="border-l-3 border-l-amber-500 rounded-r-lg overflow-hidden">
+      <button
+        type="button"
+        className="w-full flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 cursor-pointer select-none text-left"
+        onClick={() => setExpanded((prev) => !prev)}
+        aria-label={t("tasks.detail.toolCallGroupExpand")}
+      >
+        <Wrench className="h-4 w-4 shrink-0 opacity-70" />
+        <Badge variant="outline" className="text-[10px] py-0 h-5 font-medium">
+          {t("tasks.detail.toolCallGroup", { name: group.toolName, count: group.entries.length })}
+        </Badge>
+        <span className="text-[10px] text-muted-foreground font-mono">{time}</span>
+        <span className="ml-auto shrink-0">
+          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </span>
+      </button>
+      {expanded && (
+        <div className="space-y-2 px-2 py-2">
+          {group.entries.map((entry) => (
+            <InteractionEntry key={entry.id} entry={entry} />
+          ))}
         </div>
       )}
     </div>

@@ -92,6 +92,8 @@ export const zhCN = {
       forceReleaseConfirm: "确定要强制释放此任务回到待处理状态吗？当前 Worker 将失去任务所有权。",
       forceReleasing: "释放中...",
       interactionTimeline: "AI 交互时间线",
+      toolCallGroup: "{{name}} x{{count}}",
+      toolCallGroupExpand: "展开详情",
       steps: "条记录",
       noLogs: "暂无交互日志",
       interactionTypes: {
