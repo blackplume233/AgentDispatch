@@ -39,24 +39,35 @@ function buildTaskPromptText(ctx: WorkflowContext): string {
       .join('\n');
     parts.push(
       `\nInput files directory:\n  ${inputDir}\n` +
-      `The following files have been provided as task attachments:\n${fileList}\n` +
-      `Read these files as needed to complete the task.`,
+        `The following files have been provided as task attachments:\n${fileList}\n` +
+        `Read these files as needed to complete the task.`,
     );
   }
   if (outputDir) {
     parts.push(
       `\nIMPORTANT — Artifact output directory:\n` +
-      `Write ALL output files (results, reports, generated assets, etc.) to this directory:\n` +
-      `  ${outputDir}\n` +
-      `Do NOT write output files to the current working directory or other locations. ` +
-      `Files outside the output directory will NOT be collected as task artifacts.`,
+        `Write ALL output files (results, reports, generated assets, etc.) to this directory:\n` +
+        `  ${outputDir}\n` +
+        `Do NOT write output files to the current working directory or other locations. ` +
+        `Files outside the output directory will NOT be collected as task artifacts.`,
     );
   } else {
     parts.push(
       `\nIMPORTANT: Write all output files to the current working directory. ` +
-      `The files you create will be automatically collected as task artifacts.`,
+        `The files you create will be automatically collected as task artifacts.`,
     );
   }
 
-  return parts.join('\n');
+  const renderedPrompt = parts.join('\n');
+  const workerConfig = ctx.agentConfig as typeof ctx.agentConfig & { presetPrompt?: string };
+  const presetPrompt =
+    ctx.agentConfig.type === 'worker' && typeof workerConfig.presetPrompt === 'string'
+      ? workerConfig.presetPrompt.trim()
+      : '';
+
+  if (!presetPrompt) {
+    return renderedPrompt;
+  }
+
+  return `${presetPrompt}\n\n${renderedPrompt}`;
 }

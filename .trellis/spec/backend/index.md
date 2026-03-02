@@ -807,6 +807,29 @@ describe('TaskService')
   it('should reject claim on already-claimed task')
 ```
 
+### QA / Debug Artifacts Directory [NEW 2026-03-02]
+
+> **所有调试产物（截图、日志、观测报告、临时脚本）必须放入项目根目录的 `.qa/` 下，禁止散落在 `packages/` 内。**
+
+目录结构：
+
+```
+.qa/
+├── {场景名}/          # 按场景隔离（如 auth-observation/）
+│   ├── report.json
+│   ├── screenshot.png
+│   └── ...
+└── {调试脚本}.cjs     # 一次性调试脚本
+```
+
+- `.qa/` 已在 `.gitignore` 中忽略，不会进入版本控制
+- 按场景名创建子目录，避免文件混杂
+
+| Don't | Do |
+|-------|-----|
+| 在 `packages/dashboard/` 下创建 `auth-observation/` | `mkdir .qa/auth-observation` |
+| 将调试脚本放在模块源码目录 | 放入 `.qa/observe-auth-flow.cjs` |
+
 ---
 
 ## Common Patterns

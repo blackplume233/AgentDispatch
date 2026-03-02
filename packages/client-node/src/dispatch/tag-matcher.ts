@@ -32,16 +32,18 @@ export class TagMatcher {
     const idle = agents.filter((a) => a.type === 'worker' && a.status === 'idle');
 
     if (rule.targetAgentId) {
-      return idle.find((a) => a.id === rule.targetAgentId) ?? null;
+      return (
+        idle.find((a) => {
+          if (a.id === rule.targetAgentId) return true;
+          const groupId = (a as AgentInfo & { groupId?: string }).groupId;
+          return groupId === rule.targetAgentId;
+        }) ?? null
+      );
     }
 
     if (rule.targetCapabilities && rule.targetCapabilities.length > 0) {
       const caps = rule.targetCapabilities;
-      return (
-        idle.find((a) =>
-          caps.every((cap) => a.capabilities.includes(cap)),
-        ) ?? null
-      );
+      return idle.find((a) => caps.every((cap) => a.capabilities.includes(cap))) ?? null;
     }
 
     return idle[0] ?? null;

@@ -11,7 +11,7 @@
       "id": "create-task",
       "description": "创建一个新任务",
       "type": "http",
-      "command": "POST /api/v1/tasks {\"title\":\"QA Test Task\",\"type\":\"code-review\",\"input\":{\"prompt\":\"Review this code\"}}",
+      "command": "POST /api/v1/tasks {\"title\":\"QA Test Task\",\"tags\":[\"code-review\"],\"metadata\":{\"prompt\":\"Review this code\"}}",
       "expect": "返回 201，响应包含 id、status=pending、title 与请求一致"
     },
     {
@@ -60,7 +60,7 @@
       "id": "create-task-for-delete",
       "description": "创建另一个任务用于测试删除",
       "type": "http",
-      "command": "POST /api/v1/tasks {\"title\":\"Task to Delete\",\"type\":\"general\",\"input\":{\"prompt\":\"test\"}}",
+      "command": "POST /api/v1/tasks {\"title\":\"Task to Delete\",\"tags\":[\"general\"],\"metadata\":{\"prompt\":\"test\"}}",
       "expect": "返回 201"
     },
     {

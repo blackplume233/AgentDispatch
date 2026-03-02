@@ -58,17 +58,18 @@ export interface DispatchRule {
   priority?: number;
 }
 
-export interface AgentConfig {
+export interface BaseAgentConfig {
   id: string;
   type: 'manager' | 'worker';
   command: string;
   args?: string[];
   env?: Record<string, string>;
   workDir: string;
+  prompt?: string;
+  workflow?: string;
+  agentBackend?: string;
+  passes?: string[];
   capabilities?: string[];
-  autoClaimTags?: string[];
-  allowMultiProcess?: boolean;
-  promptTemplate?: string;
   acpCapabilities?: {
     fs?: {
       readTextFile?: boolean;
@@ -78,6 +79,21 @@ export interface AgentConfig {
   };
   permissionPolicy?: 'auto-allow' | 'auto-deny' | 'prompt';
 }
+
+export interface WorkerConfig extends BaseAgentConfig {
+  type: 'worker';
+  autoClaimTags?: string[];
+  maxConcurrency?: number;
+  allowMultiProcess?: boolean;
+  promptTemplate?: string;
+  presetPrompt?: string;
+}
+
+export interface ManagerConfig extends BaseAgentConfig {
+  type: 'manager';
+}
+
+export type AgentConfig = WorkerConfig | ManagerConfig;
 
 export interface ClientConfig {
   name: string;

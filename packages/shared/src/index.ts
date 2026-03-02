@@ -14,7 +14,12 @@ export type {
   InteractionLogEntry,
   ArtifactFileEntry,
 } from './types/task.js';
-export { VALID_TASK_TRANSITIONS, TERMINAL_TASK_STATUSES, isValidTransition, toTaskSummary } from './types/task.js';
+export {
+  VALID_TASK_TRANSITIONS,
+  TERMINAL_TASK_STATUSES,
+  isValidTransition,
+  toTaskSummary,
+} from './types/task.js';
 
 export type { Client, ClientStatus, DispatchMode } from './types/client.js';
 
@@ -36,17 +41,32 @@ export type {
 
 export type { IPCMessage, IPCError } from './types/ipc.js';
 
-export type { AuditLogEntry, LogLevel, LogSource, LogCategory, ClientLogEntry } from './types/log.js';
+export type {
+  AuditLogEntry,
+  LogLevel,
+  LogSource,
+  LogCategory,
+  ClientLogEntry,
+} from './types/log.js';
 
 export type {
   ServerConfig,
   ClientConfig,
+  BaseAgentConfig,
   AgentConfig,
+  WorkerConfig,
+  ManagerConfig,
   DispatchRule,
   ErrorResponse,
   AuthTokenRole,
 } from './types/config.js';
 
 // Errors
-export { ErrorCode, AppError, NotFoundError, ConflictError, ValidationError } from './errors/index.js';
+export {
+  ErrorCode,
+  AppError,
+  NotFoundError,
+  ConflictError,
+  ValidationError,
+} from './errors/index.js';
 export type { ErrorCodeType } from './errors/index.js';

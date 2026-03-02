@@ -39,6 +39,7 @@
 | 2026-03-01 | Server error handler 增强：Fastify JSON 解析错误返回 400（非 500）；空 body + Content-Type:json 的 DELETE 请求不再触发解析错误                                                                                                                                                                                                                | [CHANGED] | Server                                |
 | 2026-03-01 | auth.tokens 支持 `{ token, role }` 格式；新增 `operator` 角色（只读+创建/删除，禁止 worker 操作）；受限端点返回 `403 FORBIDDEN`；`/auth/me` 返回 `role` 字段                                                                                                                                                                                  | [CHANGED] | Server                                |
 | 2026-03-01 | 新增 Auth 路由（login/logout/me）；所有 API 启用可选 Bearer Token 鉴权；`/health` 返回体新增 `authEnabled` 字段；新增 `UNAUTHORIZED` 错误码                                                                                                                                                                                                   | [CHANGED] | Server, ClientNode, Dashboard         |
+| 2026-03-02 | AgentRegistration/AgentInfo 新增 `groupId?: string` 字段（虚拟 Worker 展开分组标识）；AgentRegistration 新增 `maxConcurrency?`/`presetPrompt?` 字段；Server `register()` 持久化 groupId；`PATCH /clients/:id/agents` 保留 groupId | [CHANGED] | Server, ClientNode, Dashboard |
 | 2026-02-28 | 初始化全部接口定义                                                                                                                                                                                                                                                                                                                            | NEW       | 全部模块                              |
 
 ---
@@ -376,12 +377,15 @@ interface RegisterClientDTO {
 
 interface AgentRegistration {
   id: string;
+  groupId?: string; // [NEW 2026-03-02] 虚拟 Worker 分组 ID（如 "worker-main"）
   type: 'manager' | 'worker';
   command: string; // ACP 版本的命令行
   workDir: string; // 工作目录
   capabilities?: string[]; // 职责倾向（Worker 类型）
   autoClaimTags?: string[]; // 根据 tag 自动接取
-  allowMultiProcess?: boolean; // 是否允许多进程
+  maxConcurrency?: number; // [NEW 2026-03-02] 最大并发数（展开为虚拟 Worker），默认 1
+  presetPrompt?: string; // [NEW 2026-03-02] 静态前置 prompt（非空时 prepend 到任务 prompt）
+  allowMultiProcess?: boolean; // DEPRECATED — 使用 maxConcurrency
 }
 ```
 
@@ -402,6 +406,7 @@ interface Client {
 
 interface AgentInfo {
   id: string;
+  groupId?: string; // [NEW 2026-03-02] 虚拟 Worker 分组 ID（展开后的 worker 共享同一 groupId）
   type: 'manager' | 'worker';
   status: 'idle' | 'busy' | 'offline' | 'error';
   currentTaskId?: string;

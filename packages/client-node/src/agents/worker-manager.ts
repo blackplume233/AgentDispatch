@@ -1,4 +1,4 @@
-import type { AgentConfig } from '@agentdispatch/shared';
+import type { WorkerConfig } from '@agentdispatch/shared';
 import type { AcpController } from '../acp/acp-controller.js';
 
 export interface WorkerState {
@@ -15,7 +15,7 @@ export class WorkerManager {
   private static readonly RESTART_MAX_DELAY = 30000;
 
   private workers: Map<string, WorkerState> = new Map();
-  private configs: Map<string, AgentConfig> = new Map();
+  private configs: Map<string, WorkerConfig> = new Map();
   private controller: AcpController;
   private onTaskRelease?: (taskId: string, reason: string) => void;
   private onWorkerRestarted?: (agentId: string, attempt: number) => void;
@@ -30,7 +30,7 @@ export class WorkerManager {
     this.onWorkerRestarted = onWorkerRestarted;
   }
 
-  registerWorker(config: AgentConfig, maxRestarts = 3): void {
+  registerWorker(config: WorkerConfig, maxRestarts = 3): void {
     this.configs.set(config.id, config);
     this.workers.set(config.id, {
       agentId: config.id,

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { Task, AgentConfig, ClientConfig } from '@agentdispatch/shared';
+import type { Task, WorkerConfig, ClientConfig } from '@agentdispatch/shared';
 
 export interface TemplateVars {
   [key: string]: string;
@@ -11,14 +11,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export function buildTemplateVars(
   task: Task,
-  agent: AgentConfig,
+  agent: WorkerConfig,
   nodeConfig: ClientConfig,
 ): TemplateVars {
   const outputDir = path.join(agent.workDir, 'output');
   const cliPath =
-    process.execPath +
-    ' ' +
-    path.resolve(process.cwd(), 'node_modules/.bin/dispatch');
+    process.execPath + ' ' + path.resolve(process.cwd(), 'node_modules/.bin/dispatch');
 
   return {
     'task.id': task.id,
@@ -81,10 +79,7 @@ function generateCliReference(taskId: string, outputDir: string): string {
 | \`dispatch worker heartbeat ${taskId}\` | Send heartbeat |`;
 }
 
-export async function renderTemplate(
-  templatePath: string,
-  vars: TemplateVars,
-): Promise<string> {
+export async function renderTemplate(templatePath: string, vars: TemplateVars): Promise<string> {
   const template = await fs.promises.readFile(templatePath, 'utf-8');
   let result = template;
 
@@ -109,7 +104,7 @@ function getDefaultTemplatePath(): string {
 
 export async function buildWorkerPrompt(
   task: Task,
-  agent: AgentConfig,
+  agent: WorkerConfig,
   nodeConfig: ClientConfig,
 ): Promise<string> {
   const vars = buildTemplateVars(task, agent, nodeConfig);

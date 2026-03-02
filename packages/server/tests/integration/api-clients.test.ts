@@ -43,6 +43,12 @@ describe('Client API', () => {
         archiveAfterDays: 1,
         cacheMaxAge: 3600000,
       },
+      auth: {
+        enabled: false,
+        users: [],
+        tokens: [],
+        sessionTtl: 86400000,
+      },
     };
     const result = await createApp(config);
     app = result.app;
@@ -63,7 +69,7 @@ describe('Client API', () => {
         host: 'localhost',
         dispatchMode: 'tag-auto',
         agents: [
-          { id: 'w1', type: 'worker', command: 'echo', workDir: '/tmp' },
+          { id: 'w1', groupId: 'worker-main', type: 'worker', command: 'echo', workDir: '/tmp' },
         ],
       },
     });
@@ -71,6 +77,7 @@ describe('Client API', () => {
     const client = JSON.parse(res.payload) as Client;
     expect(client.name).toBe('test-node');
     expect(client.status).toBe('online');
+    expect((client.agents[0] as { groupId?: string } | undefined)?.groupId).toBe('worker-main');
   });
 
   it('should reject duplicate client name', async () => {
@@ -139,9 +146,7 @@ describe('Client API', () => {
     const res = await app.inject({
       method: 'PATCH',
       url: `/api/v1/clients/${client.id}/agents`,
-      payload: [
-        { id: 'w1', type: 'worker', status: 'idle', capabilities: ['node'] },
-      ],
+      payload: [{ id: 'w1', type: 'worker', status: 'idle', capabilities: ['node'] }],
     });
     expect(res.statusCode).toBe(200);
     const updated = JSON.parse(res.payload) as Client;

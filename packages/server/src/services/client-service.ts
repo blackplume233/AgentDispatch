@@ -37,17 +37,29 @@ export class ClientService {
 
   async register(dto: RegisterClientDTO): Promise<Client> {
     if (!dto.name || typeof dto.name !== 'string') {
-      throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'name is required and must be a string');
+      throw new ValidationError(
+        ErrorCode.VALIDATION_ERROR,
+        'name is required and must be a string',
+      );
     }
     if (!dto.host || typeof dto.host !== 'string') {
-      throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'host is required and must be a string');
+      throw new ValidationError(
+        ErrorCode.VALIDATION_ERROR,
+        'host is required and must be a string',
+      );
     }
     if (!Array.isArray(dto.agents)) {
-      throw new ValidationError(ErrorCode.VALIDATION_ERROR, 'agents is required and must be an array');
+      throw new ValidationError(
+        ErrorCode.VALIDATION_ERROR,
+        'agents is required and must be an array',
+      );
     }
 
     const VALID_DISPATCH_MODES = ['manager', 'tag-auto', 'hybrid'] as const;
-    if (!dto.dispatchMode || !VALID_DISPATCH_MODES.includes(dto.dispatchMode as typeof VALID_DISPATCH_MODES[number])) {
+    if (
+      !dto.dispatchMode ||
+      !VALID_DISPATCH_MODES.includes(dto.dispatchMode as (typeof VALID_DISPATCH_MODES)[number])
+    ) {
       throw new ValidationError(
         ErrorCode.VALIDATION_ERROR,
         `dispatchMode must be one of: ${VALID_DISPATCH_MODES.join(', ')}`,
@@ -72,6 +84,7 @@ export class ClientService {
       dispatchMode: dto.dispatchMode,
       agents: dto.agents.map((a) => ({
         id: a.id,
+        groupId: (a as typeof a & { groupId?: string }).groupId,
         type: a.type,
         status: 'idle' as const,
         capabilities: a.capabilities ?? [],

@@ -1,4 +1,10 @@
-export type TaskStatus = 'pending' | 'claimed' | 'in_progress' | 'completed' | 'failed' | 'cancelled';
+export type TaskStatus =
+  | 'pending'
+  | 'claimed'
+  | 'in_progress'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 export type ClientStatus = 'online' | 'offline' | 'busy';
 
@@ -44,6 +50,7 @@ export interface Task {
 
 export interface AgentInfo {
   id: string;
+  groupId?: string;
   type: 'manager' | 'worker';
   status: 'idle' | 'busy' | 'offline' | 'error';
   currentTaskId?: string;

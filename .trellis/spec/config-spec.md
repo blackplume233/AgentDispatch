@@ -33,6 +33,7 @@
 | 2026-03-01 | ServerConfig 新增 `auth` 配置段（enabled/users/tokens/sessionTtl）；新增 `DISPATCH_AUTH_ENABLED` 环境变量；ClientConfig 新增 `token` 可选字段；新增 auth 路由（login/logout/me）；Server 增加 Fastify onRequest auth hook | [CHANGED] | Server, ClientNode, Dashboard |
 | 2026-03-01 | 新增 `DISPATCH_TOKEN`、`DISPATCH_IPC_PATH` 环境变量；Worker 临时 Token 由 ClientNode 签发并注入子进程环境 | [CHANGED] | ClientNode, CLI |
 | 2026-03-02 | AgentConfig 新增 `maxConcurrency` 字段（默认 1）；`allowMultiProcess` 标记 DEPRECATED，由 `maxConcurrency` 替代；系统内部通过虚拟 Worker 展开实现并发 | [CHANGED] | ClientNode, Server, Dashboard |
+| 2026-03-02 | WorkerConfig 新增 `presetPrompt` 字段（静态前置 prompt）；AgentInfo/AgentRegistration 新增 `groupId` 字段（虚拟 Worker 分组标识）；Server 注册时持久化 groupId，PATCH agents 保留 | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-03-02 | ServerConfig 新增 `ai` 配置段（enabled/provider/endpoint/timeout/features），用于可选的任务元数据 AI 增强预处理 | [CHANGED] | Server |
 | 2026-02-28 | 初始化全部配置定义 | NEW | 全部模块 |
 
@@ -318,6 +319,12 @@ interface AgentConfig {
   allowMultiProcess?: boolean;     // DEPRECATED — 使用 maxConcurrency 替代
 
   promptTemplate?: string;         // Worker 启动 prompt 模板路径
+
+  // [NEW 2026-03-02] Worker 静态前置 prompt
+  // 非空时，在最终 prompt 前 prepend 此文本（换行分隔）
+  // 用于为特定 Worker 注入固定指令（如 "始终使用中文回复"、角色设定等）
+  // 空字符串或纯空白自动忽略
+  presetPrompt?: string;
 
   // ACP 能力配置 [CHANGED 2026-02-28]
   // ClientNode 在 initialize 时向 Agent 声明的能力

@@ -20,9 +20,7 @@ describe('TagMatcher', () => {
   ];
 
   it('should match task tags to rule (AND logic)', () => {
-    const rules: DispatchRule[] = [
-      { taskTags: ['backend', 'api'], targetCapabilities: ['node'] },
-    ];
+    const rules: DispatchRule[] = [{ taskTags: ['backend', 'api'], targetCapabilities: ['node'] }];
     const matcher = new TagMatcher(rules);
 
     const match = matcher.match(makeTask(['backend', 'api']), makeAgents());
@@ -64,6 +62,31 @@ describe('TagMatcher', () => {
 
     const match = matcher.match(makeTask(['test']), makeAgents());
     expect(match!.agentId).toBe('w2');
+  });
+
+  it('should match worker group id for expanded workers', () => {
+    const rules: DispatchRule[] = [{ taskTags: ['test'], targetAgentId: 'worker-review' }];
+    const matcher = new TagMatcher(rules);
+
+    const match = matcher.match(makeTask(['test']), [
+      {
+        id: 'worker-review:0',
+        type: 'worker',
+        status: 'busy',
+        capabilities: ['node'],
+        groupId: 'worker-review',
+      } as AgentInfo & { groupId?: string },
+      {
+        id: 'worker-review:1',
+        type: 'worker',
+        status: 'idle',
+        capabilities: ['node'],
+        groupId: 'worker-review',
+      } as AgentInfo & { groupId?: string },
+    ]);
+
+    expect(match).not.toBeNull();
+    expect(match!.agentId).toBe('worker-review:1');
   });
 
   it('should return null when no rules match', () => {

@@ -9,10 +9,10 @@
   "steps": [
     {
       "id": "register-client",
-      "description": "注册一个新客户端",
+      "description": "注册一个新客户端（含 groupId worker）",
       "type": "http",
-      "command": "POST /api/v1/clients/register {\"name\":\"qa-test-node\",\"capabilities\":{\"maxAgents\":5},\"tags\":[\"gpu\",\"linux\"]}",
-      "expect": "返回 200/201，响应包含 clientId、status=online"
+      "command": "POST /api/v1/clients/register {\"name\":\"qa-test-node\",\"host\":\"localhost\",\"tags\":[\"gpu\",\"linux\"],\"dispatchMode\":\"tag-auto\",\"agents\":[{\"id\":\"worker-main:0\",\"type\":\"worker\",\"command\":\"echo\",\"workDir\":\"/tmp\",\"groupId\":\"worker-main\"},{\"id\":\"worker-main:1\",\"type\":\"worker\",\"command\":\"echo\",\"workDir\":\"/tmp\",\"groupId\":\"worker-main\"}]}",
+      "expect": "返回 201，响应包含 id、status=online、agents 包含 groupId"
     },
     {
       "id": "list-clients",
@@ -39,8 +39,8 @@
       "id": "update-agents",
       "description": "更新客户端的 Agent 列表",
       "type": "http",
-      "command": "PATCH /api/v1/clients/:id/agents {\"agents\":[{\"id\":\"agent-1\",\"type\":\"worker\",\"status\":\"idle\"}]}",
-      "expect": "返回 200，agents 列表已更新"
+      "command": "PATCH /api/v1/clients/:id/agents [{\"id\":\"worker-main:0\",\"type\":\"worker\",\"status\":\"busy\",\"groupId\":\"worker-main\"},{\"id\":\"worker-main:1\",\"type\":\"worker\",\"status\":\"idle\",\"groupId\":\"worker-main\"}]",
+      "expect": "返回 200，agents 列表已更新，groupId 被保留"
     },
     {
       "id": "unregister-client",

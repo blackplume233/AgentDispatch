@@ -13,7 +13,10 @@ describe('ClientService', () => {
   let service: ClientService;
 
   beforeEach(async () => {
-    tmpDir = path.join(os.tmpdir(), `client-svc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tmpDir = path.join(
+      os.tmpdir(),
+      `client-svc-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
     const store = new ClientStore(tmpDir);
     await store.init();
     const queue = new OperationQueue();
@@ -35,10 +38,18 @@ describe('ClientService', () => {
       agents: [
         {
           id: 'worker-1',
+          groupId: 'worker-main',
           type: 'worker',
           command: 'echo hello',
           workDir: '/tmp/work',
           capabilities: ['node'],
+        } as {
+          id: string;
+          groupId?: string;
+          type: 'worker';
+          command: string;
+          workDir: string;
+          capabilities?: string[];
         },
       ],
     });
@@ -47,6 +58,7 @@ describe('ClientService', () => {
     expect(client.name).toBe('test-node');
     expect(client.status).toBe('online');
     expect(client.agents).toHaveLength(1);
+    expect((client.agents[0] as { groupId?: string }).groupId).toBe('worker-main');
     expect(client.dispatchMode).toBe('tag-auto');
   });
 
