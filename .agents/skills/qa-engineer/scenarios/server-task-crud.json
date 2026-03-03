@@ -46,14 +46,14 @@
       "id": "progress-task",
       "description": "报告任务进度",
       "type": "http",
-      "command": "POST /api/v1/tasks/:id/progress {\"percent\":50,\"message\":\"halfway done\"}",
+      "command": "POST /api/v1/tasks/:id/progress {\"clientId\":\"test-client\",\"agentId\":\"agent-1\",\"progress\":50,\"message\":\"halfway done\"}",
       "expect": "返回 200，进度信息已记录"
     },
     {
       "id": "complete-task",
-      "description": "完成任务",
+      "description": "完成任务（不带 artifact，纯 JSON body）",
       "type": "http",
-      "command": "POST /api/v1/tasks/:id/complete",
+      "command": "POST /api/v1/tasks/:id/complete (JSON, no multipart)",
       "expect": "返回 200，status 变为 completed"
     },
     {

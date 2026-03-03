@@ -54,6 +54,7 @@ export class DispatchAcpClient implements AcpClient {
   private flushingStreams: boolean = false;
   private lastProgressTime: number = 0;
   private lastProgressText: string = '';
+  private writeLocks = new Map<string, Promise<void>>();
 
   constructor(agentConfig: AgentConfig, onLogBatch: LogBatchCallback, onProgress?: ProgressCallback) {
     this.agentConfig = agentConfig;
@@ -274,6 +275,22 @@ export class DispatchAcpClient implements AcpClient {
     }
   }
 
+  private async withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+    const prev = this.writeLocks.get(filePath) ?? Promise.resolve();
+    let resolve!: () => void;
+    const fence = new Promise<void>((r) => (resolve = r));
+    this.writeLocks.set(filePath, fence);
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      resolve();
+      if (this.writeLocks.get(filePath) === fence) {
+        this.writeLocks.delete(filePath);
+      }
+    }
+  }
+
   async readTextFile(params: ReadTextFileRequest): Promise<ReadTextFileResponse> {
     const filePath = params.path;
     try {
@@ -295,16 +312,21 @@ export class DispatchAcpClient implements AcpClient {
 
   async writeTextFile(params: WriteTextFileRequest): Promise<WriteTextFileResponse> {
     const filePath = params.path;
-    try {
-      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-      await fs.promises.writeFile(filePath, params.content, 'utf-8');
-      this.record('fs_write', `Write: ${filePath} (${params.content.length} chars)`, undefined, { filePath });
-      return {};
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      this.record('error', `writeTextFile failed: ${filePath}: ${msg}`, undefined, { filePath });
-      throw err;
-    }
+    return this.withFileLock(filePath, async () => {
+      const tmpPath = `${filePath}.tmp.${process.pid}.${Date.now()}`;
+      try {
+        await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.promises.writeFile(tmpPath, params.content, 'utf-8');
+        await fs.promises.rename(tmpPath, filePath);
+        this.record('fs_write', `Write: ${filePath} (${params.content.length} chars)`, undefined, { filePath });
+        return {};
+      } catch (err: unknown) {
+        await fs.promises.unlink(tmpPath).catch(() => {});
+        const msg = err instanceof Error ? err.message : String(err);
+        this.record('error', `writeTextFile failed: ${filePath}: ${msg}`, undefined, { filePath });
+        throw err;
+      }
+    });
   }
 
   async createTerminal(params: CreateTerminalRequest): Promise<CreateTerminalResponse> {

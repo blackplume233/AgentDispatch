@@ -176,6 +176,12 @@ export function registerTaskRoutes(
         );
       }
 
+      const contentType = request.headers['content-type'] ?? '';
+      if (!contentType.includes('multipart/form-data')) {
+        const task = await taskService.completeTask(request.params.id, undefined);
+        return reply.send(task);
+      }
+
       const parts = request.parts();
       let zipBuffer: Buffer | null = null;
       let resultBuffer: Buffer | null = null;

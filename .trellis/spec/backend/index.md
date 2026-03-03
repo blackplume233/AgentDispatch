@@ -910,6 +910,64 @@ ACP session cwd = {agentConfig.workDir}          ← Agent 原始目录，保留
 - 用 `workDir` 子目录作为 ACP session cwd（Agent 会丢失上下文）
 - 扫描整个 `workDir` 收集产物（会混入 Agent 自身文件和其他任务残留）
 
+### ACP writeTextFile：原子写 + 每文件写锁 [NEW 2026-03-03]
+
+> **⚠️ `DispatchAcpClient.writeTextFile()` 是 Agent 写文件的唯一入口，可能被多个并发 ACP 事件触发。未加锁时两个写操作会互相覆盖（last-write-wins）。**
+
+**双重保障**：
+
+1. **写锁**（per-file 链式 Promise）：同一路径的并发写请求严格串行化，不会丢失任何一次写；
+2. **原子 rename**：写入临时文件后 rename，确保崩溃安全。
+
+```typescript
+// dispatch-acp-client.ts
+
+// 写锁：key = filePath, value = 当前持有锁的 fence promise
+private writeLocks = new Map<string, Promise<void>>();
+
+private async withFileLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+  const prev = this.writeLocks.get(filePath) ?? Promise.resolve();
+  let resolve!: () => void;
+  const fence = new Promise<void>((r) => (resolve = r));
+  this.writeLocks.set(filePath, fence);   // 新请求等待此 fence
+  try {
+    await prev;                           // 等待上一个写完成
+    return await fn();
+  } finally {
+    resolve();                            // 释放锁
+    if (this.writeLocks.get(filePath) === fence) {
+      this.writeLocks.delete(filePath);   // 没有后续等待时清理 Map
+    }
+  }
+}
+
+async writeTextFile(params: WriteTextFileRequest): Promise<WriteTextFileResponse> {
+  return this.withFileLock(params.path, async () => {
+    const tmpPath = `${params.path}.tmp.${process.pid}.${Date.now()}`;
+    try {
+      await fs.promises.mkdir(path.dirname(params.path), { recursive: true });
+      await fs.promises.writeFile(tmpPath, params.content, 'utf-8');
+      await fs.promises.rename(tmpPath, params.path);  // 原子切换
+      return {};
+    } catch (err: unknown) {
+      await fs.promises.unlink(tmpPath).catch(() => {});  // 清理残余 tmp
+      throw err;
+    }
+  });
+}
+```
+
+**读取是否需要锁？** 不需要。`rename` 是原子的，读操作要么读到旧文件要么读到新文件，不会读到半写状态。只有写操作需要串行化。
+
+**Anti-pattern**：
+
+```typescript
+// Don't — 直接覆写，崩溃会产生损坏文件且并发写互相覆盖
+await fs.promises.writeFile(params.path, params.content);
+```
+
+---
+
 ### 进度汇报用状态描述，不用百分比 [NEW 2026-02-28]
 
 > **AI Agent 任务的完成时间不可预测。伪造的百分比进度（如根据 plan 步骤计算）会误导用户。**
@@ -953,6 +1011,34 @@ CLI 包的 `console.log` 是面向用户的正常输出渠道，不应触发 `no
 },
 ```
 
+### Gotcha: complete 端点必须先检查 content-type 再调用 request.parts() [NEW 2026-03-03]
+
+> **⚠️ Fastify multipart 插件的 `request.parts()` 在 `content-type` 不含 `multipart/form-data` 时会直接抛出 `FST_ERR_CTP_INVALID_MEDIA_TYPE`（406）。**
+
+**症状**：Worker 调用 `POST /tasks/:id/complete` 不带 artifact（JSON 或无 body）时，Server 返回 `406`。
+
+**Root Cause**：路由处理器无条件调用 `request.parts()` —— 只要请求不是 multipart 就抛异常。
+
+**Fix**：在调用 `request.parts()` 之前，先检查 `content-type`：
+
+```typescript
+app.post('/api/v1/tasks/:id/complete', async (request, reply) => {
+  const contentType = request.headers['content-type'] ?? '';
+  if (!contentType.includes('multipart/form-data')) {
+    // 无 artifact 的简单完成（Worker 用于测试或无产物场景）
+    const task = await taskService.completeTask(request.params.id, undefined);
+    return reply.send(task);
+  }
+  // 有 artifact：原有 multipart 解析路径（zip + result.json 校验）
+  const parts = request.parts();
+  // ...
+});
+```
+
+**类型注意**：`taskService.completeTask(id, undefined)` 第二参数类型为 `TaskArtifacts | undefined`，传 `undefined` 表示无产物，传 `[]` 会触发 TypeScript 类型错误（`never[]` 不可赋值给 `TaskArtifacts`）。
+
+---
+
 ### Gotcha: POST 无 body 且无 Content-Type 返回 415 [NEW 2026-03-01]
 
 > **⚠️ Fastify 对所有 POST 请求都会尝试查找 Content-Type parser。如果客户端发送了不带 body 且不带 Content-Type 的 POST 请求（如 logout），Fastify 返回 `415 Unsupported Media Type`。**
@@ -974,6 +1060,33 @@ app.addContentTypeParser('*', (_request, payload, done) => {
 ```
 
 注意：此 parser 优先级低于已注册的 `application/json` 和 `text/plain`，不影响正常 JSON 解析。
+
+### Gotcha: ProgressDTO 缺少 clientId 时所有权检查返回 409 而非 400 [NEW 2026-03-03]
+
+> **⚠️ Server 对 `POST /tasks/:id/progress` 的校验顺序是：先做所有权检查，再做 DTO 字段校验。** 因此，如果请求体中缺少 `clientId`，所有权检查因无法匹配而返回 `409 CONFLICT`（"Only the task owner can report progress"），而不是 `400 BAD_REQUEST`。
+
+**ProgressDTO 必填字段**（`shared/src/types/dto.ts`）：
+
+```typescript
+interface ProgressDTO {
+  clientId: string;   // 必填 — 所有权验证用
+  agentId:  string;   // 必填
+  progress: number;   // 必填（整数 0–100，语义上固定传 0 即可触发状态转换）
+  message?: string;   // 可选 — 描述当前进度的自然语言
+}
+```
+
+**常见错误**：测试脚本直接发 `{ "percent": 50 }` 或 `{ "progress": 50 }` 而不带 `clientId`，导致 409。
+
+**正确示例**：
+
+```bash
+curl -X POST http://localhost:PORT/api/v1/tasks/$TASK_ID/progress \
+  -H "Content-Type: application/json" \
+  -d '{"clientId":"test-client","agentId":"agent-1","progress":0,"message":"halfway done"}'
+```
+
+---
 
 ### Gotcha: PowerShell curl.exe 的 JSON 转义 [NEW 2026-03-01]
 
