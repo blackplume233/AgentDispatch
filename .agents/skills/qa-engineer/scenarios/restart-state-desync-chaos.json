@@ -1,0 +1,353 @@
+{
+  "name": "restart-state-desync-chaos",
+  "description": "终极复杂场景：模拟任务执行过程中的重启、新 Worker 加入、状态去同步问题。覆盖：(1) Client 断线中途任务 claimed 未释放, (2) 多 Client 竞争 claim 同一任务, (3) 重注册后孤儿任务 reconcile, (4) 动态添加 Worker 拾取悬空任务, (5) Server 端主动 cancel 与 Worker 状态对齐, (6) 高并发任务创建 + 同时 claim 的竞态, (7) 任务完成回调失败后 Worker 保持 busy 死锁验证",
+  "tags": ["chaos", "restart", "state-sync", "worker", "task", "concurrency", "orphan"],
+  "setup": {
+    "server": true,
+    "clientNode": false,
+    "templates": []
+  },
+  "steps": [
+    {
+      "id": "setup-verify",
+      "description": "确认 Server 就绪，初始状态干净",
+      "type": "http",
+      "command": "GET /api/v1/tasks",
+      "expect": "返回 200，任务列表为空或只含历史任务（非干扰项）"
+    },
+
+    {
+      "id": "register-alpha",
+      "description": "注册 Client Alpha（模拟主力 Worker 节点）",
+      "type": "http",
+      "command": "POST /api/v1/clients/register {\"name\":\"chaos-alpha\",\"host\":\"test-host-1\",\"dispatchMode\":\"tag-auto\",\"tags\":[\"gpu\",\"nlp\"],\"agents\":[{\"id\":\"alpha-w1\",\"type\":\"worker\",\"command\":\"echo worker\",\"workDir\":\"/tmp\",\"capabilities\":[\"text-gen\"]},{\"id\":\"alpha-w2\",\"type\":\"worker\",\"command\":\"echo worker\",\"workDir\":\"/tmp\",\"capabilities\":[\"code-review\"]}]}",
+      "expect": "返回 201，记录 alphaClientId"
+    },
+    {
+      "id": "register-beta",
+      "description": "注册 Client Beta（模拟备用节点，相同 name 前缀）",
+      "type": "http",
+      "command": "POST /api/v1/clients/register {\"name\":\"chaos-beta\",\"host\":\"test-host-2\",\"dispatchMode\":\"tag-auto\",\"tags\":[\"cpu\"],\"agents\":[{\"id\":\"beta-w1\",\"type\":\"worker\",\"command\":\"echo worker\",\"workDir\":\"/tmp\",\"capabilities\":[\"text-gen\"]}]}",
+      "expect": "返回 201，记录 betaClientId"
+    },
+    {
+      "id": "register-gamma",
+      "description": "注册 Client Gamma（后来加入的扩容节点）",
+      "type": "http",
+      "command": "POST /api/v1/clients/register {\"name\":\"chaos-gamma\",\"host\":\"test-host-3\",\"dispatchMode\":\"tag-auto\",\"tags\":[\"gpu\",\"vision\"],\"agents\":[{\"id\":\"gamma-w1\",\"type\":\"worker\",\"command\":\"echo worker\",\"workDir\":\"/tmp\",\"capabilities\":[\"image-gen\"]}]}",
+      "expect": "返回 201，记录 gammaClientId"
+    },
+
+    {
+      "id": "bulk-create-tasks",
+      "description": "批量创建 8 个任务（不同优先级和标签）",
+      "type": "shell",
+      "command": "for i in 1 2 3 4 5 6 7 8; do curl -s -X POST http://localhost:$PORT/api/v1/tasks -H 'Content-Type: application/json' -d \"{\\\"title\\\":\\\"Chaos Task $i\\\",\\\"tags\\\":[\\\"chaos\\\"],\\\"priority\\\":\\\"$([ $((i % 3)) -eq 0 ] && echo high || echo normal)\\\",\\\"metadata\\\":{\\\"seq\\\":$i}}\"; echo; done",
+      "expect": "所有 8 个请求返回 201，每个任务状态为 pending，记录 taskIds[1..8]"
+    },
+
+    {
+      "id": "verify-pending-count",
+      "description": "确认 8 个 pending 任务全部在列表中",
+      "type": "http",
+      "command": "GET /api/v1/tasks?status=pending",
+      "expect": "返回 200，data 数组包含 8 个 pending 任务"
+    },
+
+    {
+      "id": "alpha-claims-task1",
+      "description": "Alpha.w1 认领任务 1",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:task1Id/claim {\"clientId\":\"<alphaClientId>\",\"agentId\":\"alpha-w1\"}",
+      "expect": "返回 200，status=claimed，claimedBy.clientId=alphaClientId，claimedBy.agentId=alpha-w1"
+    },
+    {
+      "id": "alpha-claims-task2",
+      "description": "Alpha.w2 认领任务 2",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:task2Id/claim {\"clientId\":\"<alphaClientId>\",\"agentId\":\"alpha-w2\"}",
+      "expect": "返回 200，status=claimed"
+    },
+    {
+      "id": "beta-claims-task3",
+      "description": "Beta.w1 认领任务 3",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:task3Id/claim {\"clientId\":\"<betaClientId>\",\"agentId\":\"beta-w1\"}",
+      "expect": "返回 200，status=claimed"
+    },
+
+    {
+      "id": "alpha-progress-task1",
+      "description": "Alpha.w1 上报任务 1 进度 30%",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:task1Id/progress {\"clientId\":\"<alphaClientId>\",\"agentId\":\"alpha-w1\",\"progress\":30,\"message\":\"Processing...\"}",
+      "expect": "返回 200，任务进入 in_progress 状态，progress=30"
+    },
+    {
+      "id": "alpha-progress-task2",
+      "description": "Alpha.w2 上报任务 2 进度 60%",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:task2Id/progress {\"clientId\":\"<alphaClientId>\",\"agentId\":\"alpha-w2\",\"progress\":60,\"message\":\"Almost done...\"}",
+      "expect": "返回 200，status=in_progress，progress=60"
+    },
+
+    {
+      "id": "scenario1-beta-steal-inprogress",
+      "description": "【场景1-重启去同步】Beta 尝试 claim Alpha 正在执行的任务 1（应被拒绝）",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:task1Id/claim {\"clientId\":\"<betaClientId>\",\"agentId\":\"beta-w1\"}",
+      "expect": "返回 409（任务已被认领/执行中），不允许双重 claim。若返回 200 则为严重状态机漏洞"
+    },
+
+    {
+      "id": "scenario1-beta-release-not-owner",
+      "description": "【场景1】Beta 尝试 release Alpha 的任务 1（非 owner，应被拒绝）",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:task1Id/release {\"clientId\":\"<betaClientId>\",\"reason\":\"unauthorized attempt\"}",
+      "expect": "返回 403 或 409，不能让非 owner 释放任务"
+    },
+
+    {
+      "id": "scenario1-alpha-disconnect-simulate",
+      "description": "【场景1】模拟 Alpha 节点断线——直接删除 Alpha client 注册（等效于心跳超时后 Server 清理）",
+      "type": "http",
+      "command": "DELETE /api/v1/clients/<alphaClientId>",
+      "expect": "返回 200 或 204，Alpha client 被删除"
+    },
+
+    {
+      "id": "scenario1-verify-tasks-after-disconnect",
+      "description": "【场景1】Alpha 断线后，验证其名下任务的状态变化",
+      "type": "http",
+      "command": "GET /api/v1/tasks/:task1Id",
+      "expect": "关键验证：任务 1 的状态应从 in_progress 变回 pending（如果 Server 在 client 删除时自动 release），或仍为 in_progress（需手动 release）。记录实际状态，这决定 orphan 处理机制是否完善"
+    },
+    {
+      "id": "scenario1-verify-task2-after-disconnect",
+      "description": "【场景1】验证任务 2 在 Alpha 断线后的状态",
+      "type": "http",
+      "command": "GET /api/v1/tasks/:task2Id",
+      "expect": "任务 2 状态：如 Server 自动 release 则为 pending，否则仍为 in_progress/claimed。白盒：检查任务的 claimedBy 字段是否已清空"
+    },
+
+    {
+      "id": "scenario1-gamma-claim-task1-after-alpha-gone",
+      "description": "【场景1】Alpha 删除后，Gamma 尝试认领任务 1",
+      "type": "http",
+      "command": "POST /api/v1/tasks/:task1Id/claim {\"clientId\":\"<gammaClientId>\",\"agentId\":\"gamma-w1\"}",
+      "expect": "若任务 1 已被 release 则返回 200 成功认领；若仍为 in_progress 则返回 409——记录实际结果，评估孤儿任务处理是否需要手动干预"
+    },
+
+    {
+      "id": "scenario2-concurrent-claim-race",
+      "description": "【场景2-并发竞争】重新注册 Alpha 节点，准备并发 claim 实验",
+      "type": "http",
+      "command": "POST /api/v1/clients/register {\"name\":\"chaos-alpha-v2\",\"host\":\"test-host-1\",\"dispatchMode\":\"tag-auto\",\"agents\":[{\"id\":\"alpha2-w1\",\"type\":\"worker\",\"command\":\"echo worker\",\"workDir\":\"/tmp\"},{\"id\":\"alpha2-w2\",\"type\":\"worker\",\"command\":\"echo worker\",\"workDir\":\"/tmp\"}]}",
+      "expect": "返回 201，记录 alpha2ClientId"
+    },
+
+    {
+      "id": "scenario2-find-free-task",
+      "description": "【场景2】找到一个 pending 状态的任务用于并发 claim 测试",
+      "type": "http",
+      "command": "GET /api/v1/tasks?status=pending",
+      "expect": "返回至少一个 pending 任务，记录 freeTaskId（选 task4 或 task5）"
+    },
+
+    {
+      "id": "scenario2-parallel-claim-attempt",
+      "description": "【场景2-并发竞争】Alpha2.w1 和 Beta.w1 同时 claim 同一个任务（模拟竞态条件）——串行执行但紧跟检查",
+      "type": "shell",
+      "command": "TASK_ID='<freeTaskId>'; A_RESULT=$(curl -s -w '\\n%{http_code}' -X POST http://localhost:$PORT/api/v1/tasks/$TASK_ID/claim -H 'Content-Type: application/json' -d '{\"clientId\":\"<alpha2ClientId>\",\"agentId\":\"alpha2-w1\"}'); B_RESULT=$(curl -s -w '\\n%{http_code}' -X POST http://localhost:$PORT/api/v1/tasks/$TASK_ID/claim -H 'Content-Type: application/json' -d '{\"clientId\":\"<betaClientId>\",\"agentId\":\"beta-w1\"}'); echo \"A_CLAIM: $A_RESULT\"; echo \"B_CLAIM: $B_RESULT\"",
+      "expect": "严格约束：两个 claim 中恰好一个返回 200（成功），另一个返回 409（冲突）。若两个都返回 200 则为严重 bug（任务被双重认领）"
+    },
+
+    {
+      "id": "scenario2-verify-single-owner",
+      "description": "【场景2】验证任务只有一个 owner",
+      "type": "http",
+      "command": "GET /api/v1/tasks/<freeTaskId>",
+      "expect": "返回 200，claimedBy 只有一个 clientId 和 agentId，status 为 claimed。若 claimedBy 包含多个条目则为状态机漏洞"
+    },
+
+    {
+      "id": "scenario3-new-task-during-execution",
+      "description": "【场景3-执行中新建任务】当 Beta.w1 有任务在执行时，创建 3 个新任务",
+      "type": "shell",
+      "command": "for i in 9 10 11; do curl -s -X POST http://localhost:$PORT/api/v1/tasks -H 'Content-Type: application/json' -d \"{\\\"title\\\":\\\"Late Task $i\\\",\\\"tags\\\":[\\\"late\\\"],\\\"priority\\\":\\\"high\\\",\\\"metadata\\\":{\\\"lateSeq\\\":$i}}\"; echo; done",
+      "expect": "返回 3 个 201，新任务状态均为 pending，记录 lateTask9Id/10Id/11Id"
+    },
+
+    {
+      "id": "scenario3-alpha2-claim-late-task",
+      "description": "【场景3】Alpha2.w2（空闲 Worker）认领后来创建的高优先级任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks/<lateTask9Id>/claim {\"clientId\":\"<alpha2ClientId>\",\"agentId\":\"alpha2-w2\"}",
+      "expect": "返回 200，新任务可以被空闲 Worker 正常认领，不受其他 Worker 执行中任务影响"
+    },
+
+    {
+      "id": "scenario3-gamma-claim-multiple",
+      "description": "【场景3】Gamma 快速连续认领任务 10 和 11（单 Worker 同时认领多个）",
+      "type": "shell",
+      "command": "curl -s -X POST http://localhost:$PORT/api/v1/tasks/<lateTask10Id>/claim -H 'Content-Type: application/json' -d '{\"clientId\":\"<gammaClientId>\",\"agentId\":\"gamma-w1\"}'; echo; curl -s -X POST http://localhost:$PORT/api/v1/tasks/<lateTask11Id>/claim -H 'Content-Type: application/json' -d '{\"clientId\":\"<gammaClientId>\",\"agentId\":\"gamma-w1\"}'",
+      "expect": "第一个 claim 返回 200。第二个 claim 行为待观察：若 gamma-w1 是单 concurrency Worker，第二个应返回 409（worker busy）；若允许多并发则返回 200。记录实际结果"
+    },
+
+    {
+      "id": "scenario4-release-then-immediate-claim",
+      "description": "【场景4-Release 后立即 Claim 竞态】Alpha2.w2 release 任务 9，同时 Beta 立即尝试 claim",
+      "type": "shell",
+      "command": "curl -s -X POST http://localhost:$PORT/api/v1/tasks/<lateTask9Id>/release -H 'Content-Type: application/json' -d '{\"clientId\":\"<alpha2ClientId>\",\"reason\":\"voluntary release for test\"}'; echo RELEASED; curl -s -w '\\n%{http_code}' -X POST http://localhost:$PORT/api/v1/tasks/<lateTask9Id>/claim -H 'Content-Type: application/json' -d '{\"clientId\":\"<betaClientId>\",\"agentId\":\"beta-w1\"}'",
+      "expect": "release 返回 200。紧跟的 claim 也应返回 200（任务已回到 pending 状态）。验证 release → claim 的状态转换链是否完整"
+    },
+
+    {
+      "id": "scenario4-complete-task",
+      "description": "【场景4】Beta 完成任务 9",
+      "type": "http",
+      "command": "POST /api/v1/tasks/<lateTask9Id>/progress {\"clientId\":\"<betaClientId>\",\"agentId\":\"beta-w1\",\"progress\":100,\"message\":\"Done\"}",
+      "expect": "返回 200，任务进入 in_progress 状态"
+    },
+
+    {
+      "id": "scenario4-verify-complete-then-cancel",
+      "description": "【场景4】在任务 in_progress 时尝试直接 cancel（模拟外部干预）",
+      "type": "http",
+      "command": "POST /api/v1/tasks/<lateTask9Id>/cancel {\"reason\":\"External interrupt during execution\"}",
+      "expect": "返回 200，任务状态变为 cancelled。验证 in_progress → cancelled 的合法状态转换。同时记录：cancel 后 Beta.w1 的状态如何体现（Worker 端 heartbeat 应会收到 cancelTasks 指令）"
+    },
+
+    {
+      "id": "scenario5-worker-state-after-cancel",
+      "description": "【场景5-Worker 状态对齐】Server cancel 后，通过心跳验证 cancelTasks 推送机制",
+      "type": "http",
+      "command": "POST /api/v1/clients/<betaClientId>/heartbeat {\"agents\":[{\"id\":\"beta-w1\",\"type\":\"worker\",\"status\":\"busy\",\"currentTaskId\":\"<lateTask9Id>\"}]}",
+      "expect": "关键验证：heartbeat 响应的 cancelTasks 数组中应包含 lateTask9Id，通知 Beta 节点停止执行该任务。若 cancelTasks 为空则为状态同步漏洞"
+    },
+
+    {
+      "id": "scenario5-beta-update-agents-after-cancel",
+      "description": "【场景5】Beta 收到 cancel 指令后，更新 agent 状态为 idle（模拟 ClientNode 处理 cancelTasks 后的行为）",
+      "type": "http",
+      "command": "PATCH /api/v1/clients/<betaClientId>/agents [{\"id\":\"beta-w1\",\"type\":\"worker\",\"status\":\"idle\",\"currentTaskId\":null}]",
+      "expect": "返回 200，Server 端 Beta.w1 状态更新为 idle"
+    },
+
+    {
+      "id": "scenario5-stale-complete-attempt",
+      "description": "【场景5-完成回调失败】Beta 在 Worker 已知任务被取消后，仍尝试 complete 该任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks/<lateTask9Id>/complete {\"clientId\":\"<betaClientId>\",\"agentId\":\"beta-w1\",\"summary\":\"Completed (stale)\"}",
+      "expect": "关键验证：返回 409（任务已 cancelled，不能 complete）。若返回 200 则为严重状态机漏洞（已取消的任务被错误标记为完成）"
+    },
+
+    {
+      "id": "scenario5-stale-progress-on-cancelled",
+      "description": "【场景5】对已 cancelled 任务上报进度（模拟网络延迟场景）",
+      "type": "http",
+      "command": "POST /api/v1/tasks/<lateTask9Id>/progress {\"clientId\":\"<betaClientId>\",\"agentId\":\"beta-w1\",\"progress\":99,\"message\":\"Almost done (stale)\"}",
+      "expect": "返回 409 或 400，不能对 cancelled 任务更新进度。若返回 200 则为状态机漏洞"
+    },
+
+    {
+      "id": "scenario6-reregister-same-name",
+      "description": "【场景6-重注册对齐】模拟 Alpha 重启后以相同 name 重新注册（测试 already registered 处理）",
+      "type": "http",
+      "command": "POST /api/v1/clients/register {\"name\":\"chaos-alpha-v2\",\"host\":\"test-host-1-rebooted\",\"dispatchMode\":\"tag-auto\",\"agents\":[{\"id\":\"alpha2-w1\",\"type\":\"worker\",\"command\":\"echo worker\",\"workDir\":\"/tmp\"},{\"id\":\"alpha2-w2\",\"type\":\"worker\",\"command\":\"echo worker\",\"workDir\":\"/tmp\"}]}",
+      "expect": "若 name 唯一约束存在：返回 409（already registered）或 200（覆盖注册）。记录实际行为——这决定 ClientNode 的 reconnect 逻辑是否会遇到问题"
+    },
+
+    {
+      "id": "scenario6-orphan-tasks-owned-by-alpha2",
+      "description": "【场景6】查看 Alpha2 仍然持有的任务（未被释放的）",
+      "type": "http",
+      "command": "GET /api/v1/tasks?status=claimed",
+      "expect": "返回所有 claimed 状态的任务，检查哪些还属于 alpha2ClientId。这些任务在 Alpha2 重启后应该被 reconcile 释放"
+    },
+    {
+      "id": "scenario6-orphan-tasks-inprogress",
+      "description": "【场景6】查看仍处于 in_progress 的任务",
+      "type": "http",
+      "command": "GET /api/v1/tasks?status=in_progress",
+      "expect": "返回所有 in_progress 任务，记录哪些属于已下线节点。这些是需要 orphan reconcile 释放的任务"
+    },
+
+    {
+      "id": "scenario6-manual-release-orphan",
+      "description": "【场景6-孤儿任务手动恢复】手动释放仍属于 Alpha2 的孤儿任务（模拟 reconcileOrphanedTasks 行为）",
+      "type": "shell",
+      "command": "ORPHAN_TASKS=$(curl -s http://localhost:$PORT/api/v1/tasks | python3 -c \"import json,sys; tasks=json.load(sys.stdin)['data']; [print(t['id']) for t in tasks if t.get('claimedBy',{}).get('clientId')=='<alpha2ClientId>' and t['status'] in ['claimed','in_progress']]\"); for tid in $ORPHAN_TASKS; do echo \"Releasing orphan $tid\"; curl -s -X POST http://localhost:$PORT/api/v1/tasks/$tid/release -H 'Content-Type: application/json' -d '{\"clientId\":\"<alpha2ClientId>\",\"reason\":\"orphan cleanup\"}'; echo; done",
+      "expect": "每个孤儿任务的 release 调用返回 200，任务回到 pending 状态，等待重新分配"
+    },
+
+    {
+      "id": "scenario7-add-worker-during-chaos",
+      "description": "【场景7-动态扩容】向 Gamma 节点动态添加新 Worker，验证其能立即接收 pending 任务",
+      "type": "http",
+      "command": "PATCH /api/v1/clients/<gammaClientId>/agents [{\"id\":\"gamma-w2\",\"type\":\"worker\",\"status\":\"idle\"},{\"id\":\"gamma-w1\",\"type\":\"worker\",\"status\":\"idle\"}]",
+      "expect": "返回 200，Gamma 节点现在有 2 个 Worker 可用"
+    },
+
+    {
+      "id": "scenario7-new-worker-claims-released-task",
+      "description": "【场景7】新 Worker gamma-w2 认领刚才被释放的孤儿任务",
+      "type": "http",
+      "command": "GET /api/v1/tasks?status=pending",
+      "expect": "返回 pending 任务列表，应包含之前孤儿清理后回到 pending 的任务"
+    },
+    {
+      "id": "scenario7-gamma-w2-claim",
+      "description": "【场景7】gamma-w2 认领一个之前的孤儿任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks/<task2Id>/claim {\"clientId\":\"<gammaClientId>\",\"agentId\":\"gamma-w2\"}",
+      "expect": "返回 200（若 task2 已被 release 回 pending），验证新 Worker 能无缝接管孤儿任务。若 task2 仍被占用则返回 409——记录实际结果"
+    },
+
+    {
+      "id": "scenario7-complete-via-gamma",
+      "description": "【场景7】Gamma.w2 完成任务（测试正常完成流程完整性）",
+      "type": "http",
+      "command": "POST /api/v1/tasks/<task2Id>/progress {\"clientId\":\"<gammaClientId>\",\"agentId\":\"gamma-w2\",\"progress\":100,\"message\":\"Completed by new worker\"}",
+      "expect": "返回 200，任务进入 in_progress 状态，progress=100"
+    },
+
+    {
+      "id": "scenario7-final-complete",
+      "description": "【场景7】Gamma.w2 完成任务",
+      "type": "http",
+      "command": "POST /api/v1/tasks/<task2Id>/complete {\"clientId\":\"<gammaClientId>\",\"agentId\":\"gamma-w2\",\"summary\":\"Recovered and completed by gamma-w2\"}",
+      "expect": "返回 200，任务状态变为 completed。这验证了完整的：孤儿释放 → 新 Worker 认领 → 完成 的生命周期"
+    },
+
+    {
+      "id": "final-state-audit",
+      "description": "最终状态审计：检查所有任务和客户端的最终状态",
+      "type": "shell",
+      "command": "echo '=== ALL TASKS ==='; curl -s http://localhost:$PORT/api/v1/tasks | python3 -c \"import json,sys; data=json.load(sys.stdin); [print(f\\\"  {t['id'][:8]} | {t['status']:12} | {t['title']}\\\") for t in data['data']]\"; echo '=== ALL CLIENTS ==='; curl -s http://localhost:$PORT/api/v1/clients | python3 -c \"import json,sys; data=json.load(sys.stdin); [print(f\\\"  {c['id'][:8]} | {c['name']:20} | agents={len(c.get('agents',[]))}\\\") for c in data['data']]\"",
+      "expect": "任务状态分布合理：completed 任务有 claimedBy 记录，cancelled 任务有 cancelledAt 时间戳，pending 任务无 claimedBy。没有孤儿 claimed/in_progress 任务属于已删除的 client"
+    },
+
+    {
+      "id": "stress-rapid-create-claim",
+      "description": "【压力测试】快速连续创建 5 个任务，然后立即尝试全部认领",
+      "type": "shell",
+      "command": "echo 'Creating stress tasks...'; STRESS_IDS=(); for i in $(seq 1 5); do ID=$(curl -s -X POST http://localhost:$PORT/api/v1/tasks -H 'Content-Type: application/json' -d \"{\\\"title\\\":\\\"Stress $i\\\",\\\"tags\\\":[\\\"stress\\\"],\\\"priority\\\":\\\"normal\\\"}\" | python3 -c \"import json,sys; print(json.load(sys.stdin)['id'])\"); echo \"Created: $ID\"; STRESS_IDS+=($ID); done; echo 'Claiming all stress tasks...'; WID=1; for ID in ${STRESS_IDS[@]}; do curl -s -X POST http://localhost:$PORT/api/v1/tasks/$ID/claim -H 'Content-Type: application/json' -d \"{\\\"clientId\\\":\\\"<gammaClientId>\\\",\\\"agentId\\\":\\\"gamma-w$((WID % 2 + 1))\\\"}\"; echo; WID=$((WID+1)); done",
+      "expect": "5 个任务依次被不同 Worker 认领，每个任务只有一个 owner。验证在高速 create+claim 序列下无状态错乱"
+    },
+
+    {
+      "id": "verify-no-ghost-claimed",
+      "description": "【最终核查】确认无幽灵任务（claimed 但 claimedBy 指向不存在的 client）",
+      "type": "shell",
+      "command": "CLIENTS=$(curl -s http://localhost:$PORT/api/v1/clients | python3 -c \"import json,sys; data=json.load(sys.stdin); print(','.join([c['id'] for c in data['data']]))\"); TASKS=$(curl -s http://localhost:$PORT/api/v1/tasks | python3 -c \"import json,sys; data=json.load(sys.stdin); [print(f\\\"{t['id']} {t['status']} {t.get('claimedBy',{}).get('clientId','none')}\\\") for t in data['data'] if t['status'] in ['claimed','in_progress']]\"); echo \"Active clients: $CLIENTS\"; echo \"Claimed/InProgress tasks:\"; echo \"$TASKS\"",
+      "expect": "所有 claimed/in_progress 任务的 claimedBy.clientId 都在活跃客户端列表中。若有 claimedBy 指向已删除客户端，则为孤儿任务泄漏"
+    }
+  ],
+  "cleanup": [
+    "DELETE /api/v1/clients/<alphaClientId>",
+    "DELETE /api/v1/clients/<betaClientId>",
+    "DELETE /api/v1/clients/<gammaClientId>",
+    "DELETE /api/v1/clients/<alpha2ClientId>"
+  ]
+}

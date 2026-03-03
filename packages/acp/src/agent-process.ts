@@ -31,12 +31,18 @@ export class AgentProcess {
     this.process = spawn(cmd, args, {
       cwd: this.config.workDir,
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, ...this.extraEnv },
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONUTF8: '1',
+        ...this.extraEnv,
+      },
       shell: process.platform === 'win32',
     });
 
-    this.process.stderr?.on('data', (data: Buffer) => {
-      this.events.onStderr(data.toString());
+    this.process.stderr?.setEncoding('utf8');
+    this.process.stderr?.on('data', (data: string) => {
+      this.events.onStderr(data);
     });
 
     this.process.on('exit', (code, signal) => {
@@ -53,9 +59,16 @@ export class AgentProcess {
     };
   }
 
-  kill(signal: NodeJS.Signals = 'SIGTERM'): void {
-    if (this.process && !this.process.killed) {
-      this.process.kill(signal);
+  kill(signal: NodeJS.Signals = 'SIGTERM', forceKillMs = 5000): void {
+    if (!this.process || this.process.killed) return;
+    this.process.kill(signal);
+    if (signal === 'SIGTERM' && forceKillMs > 0) {
+      const timer = setTimeout(() => {
+        if (this.process && !this.process.killed) {
+          this.process.kill('SIGKILL');
+        }
+      }, forceKillMs);
+      this.process.once('exit', () => clearTimeout(timer));
     }
   }
 

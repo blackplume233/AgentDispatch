@@ -103,6 +103,8 @@ export class AcpController {
       this.connections.set(agentConfig.id, handle.connection);
       this.events.onAgentStarted(agentConfig.id, handle.process.getPid());
 
+      acpClient.startSession(handle.sessionId, task.id);
+
       const effectiveOutputDir = outputDir ?? agentConfig.workDir;
       const scanFn = scanWorkDir ?? (async () => [] as string[]);
 
@@ -122,11 +124,11 @@ export class AcpController {
       const runner = this.createWorkflowRunner();
       const result = await runner.run(ctx);
 
-      acpClient.flushLogs();
+      acpClient.endSession(result.finalStopReason);
       this.events.onTaskCompleted(agentConfig.id, task.id, result.finalStopReason);
     } catch (err: unknown) {
-      acpClient.flushLogs();
       const msg = err instanceof Error ? err.message : String(err);
+      acpClient.endSession('error');
       this.events.onAgentError(agentConfig.id, `ACP session failed: ${msg}`);
       this.events.onTaskCompleted(agentConfig.id, task.id, 'cancelled');
     } finally {

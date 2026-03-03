@@ -186,8 +186,12 @@ export class ClientNode {
   }
 
   async start(): Promise<void> {
+    process.stdout.setDefaultEncoding('utf8');
     await this.ipcServer.start();
     this.log(`IPC server started at ${this.config.ipc.path}`);
+    this.recordClientLog('info', 'node.started', `IPC server started at ${this.config.ipc.path}`, {
+      ipcPath: this.config.ipc.path,
+    });
   }
 
   async register(): Promise<Client> {
@@ -217,11 +221,18 @@ export class ClientNode {
     }
 
     this.acpController.setClientId(this.client.id);
-    this.recordClientLog('info', 'node.registered', `Registered as ${this.client.id}`);
+    this.recordClientLog('info', 'node.registered', `Registered as ${this.client.id}`, {
+      clientId: this.client.id,
+      name: this.config.name,
+    });
     this.startHeartbeat();
     this.startClaimCountCleanup();
     await this.reconcileOrphanedTasks();
     this.poller.start();
+    this.recordClientLog('info', 'polling.started', 'Task polling started', {
+      clientId: this.client.id,
+      interval: this.config.polling.interval,
+    });
     await this.startManagerIfConfigured();
     return this.client;
   }
@@ -242,6 +253,7 @@ export class ClientNode {
   async stop(): Promise<void> {
     this.stopped = true;
     this.poller.stop();
+    this.recordClientLog('info', 'polling.stopped', 'Task polling stopped');
     this.stopHeartbeat();
     if (this.claimCountCleanupTimer) {
       clearInterval(this.claimCountCleanupTimer);
@@ -262,6 +274,9 @@ export class ClientNode {
     this.dispatcher.setManagerAvailable(false);
     await this.acpController.stopAll();
     await this.ipcServer.stop();
+    this.recordClientLog('info', 'node.stopped', 'ClientNode stopped', {
+      clientId: this.client?.id ?? null,
+    });
     this.flushClientLogs();
     this.log('Stopped');
   }
@@ -485,6 +500,12 @@ export class ClientNode {
             this.log(
               `Launched agent ${resolvedTargetAgentId} for task ${task.id.slice(0, 8)} (outputDir=${outputDir}${inputDir ? `, inputDir=${inputDir}` : ''})`,
             );
+            this.recordClientLog('info', 'task.launched', `Task ${task.id} launched on agent ${resolvedTargetAgentId}`, {
+              taskId: task.id,
+              agentId: resolvedTargetAgentId,
+              outputDir,
+              inputDir: inputDir ?? null,
+            });
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -555,12 +576,24 @@ export class ClientNode {
         if (zipPath && resultPath) {
           await this.httpClient.completeTask(taskId, { zipPath, resultPath });
           this.log(`Task ${taskId.slice(0, 8)} artifacts uploaded`);
+          this.recordClientLog('info', 'task.artifacts_collected', `Task ${taskId} artifacts uploaded`, {
+            taskId,
+            agentId,
+            zipPath,
+            resultPath,
+            kind: 'full',
+          });
         } else {
           const agentCfg = this.runtimeAgentsById.get(agentId);
           const fallbackDir = outputDir ?? agentCfg?.workDir ?? os.tmpdir();
           const minimal = await this.generateMinimalResult(fallbackDir, taskId);
           await this.httpClient.completeTask(taskId, minimal);
           this.log(`Task ${taskId.slice(0, 8)} completed with minimal result`);
+          this.recordClientLog('info', 'task.artifacts_collected', `Task ${taskId} completed with minimal result`, {
+            taskId,
+            agentId,
+            kind: 'minimal',
+          });
         }
 
         this.taskOutputDirs.delete(taskId);

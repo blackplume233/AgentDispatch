@@ -135,6 +135,27 @@ export class DispatchAcpClient implements AcpClient {
     this.onLogBatch(batch);
   }
 
+  startSession(sessionId: string, taskId: string): void {
+    this.currentSessionId = sessionId;
+    this.record(
+      'system',
+      `Session started: ${sessionId}`,
+      { event: 'session_start', taskId, sessionId },
+      { sessionId },
+    );
+  }
+
+  endSession(stopReason: string): void {
+    this.flushStreamBuffers();
+    this.record(
+      'system',
+      `Session ended: ${stopReason}`,
+      { event: 'session_end', stopReason, sessionId: this.currentSessionId },
+      { sessionId: this.currentSessionId, stopReason },
+    );
+    this.flushLogs();
+  }
+
   async sessionUpdate(params: SessionNotification): Promise<void> {
     const update = params.update;
     const sessionId = params.sessionId;
@@ -162,13 +183,15 @@ export class DispatchAcpClient implements AcpClient {
       }
       case 'tool_call': {
         this.flushStreamBuffers();
-        const tc = update as unknown as { toolCallId: string; title: string; kind?: string; status?: string };
+        const tc = update as unknown as { toolCallId: string; title: string; kind?: string; status?: string; input?: Record<string, unknown> };
         this.notifyProgress(`Calling: ${tc.title ?? 'tool'}`, true);
         this.record('tool_call', tc.title ?? 'tool_call', {
           sessionUpdate: update.sessionUpdate,
           toolCallId: tc.toolCallId,
           kind: tc.kind,
           status: tc.status,
+          input: tc.input,
+          raw: update as unknown as Record<string, unknown>,
         }, {
           toolCallId: tc.toolCallId,
           toolName: tc.title,
@@ -180,7 +203,7 @@ export class DispatchAcpClient implements AcpClient {
       }
       case 'tool_call_update': {
         this.flushStreamBuffers();
-        const tcu = update as unknown as { toolCallId: string; title?: string; kind?: string; status?: string };
+        const tcu = update as unknown as { toolCallId: string; title?: string; kind?: string; status?: string; output?: unknown; error?: unknown };
         if (tcu.status === 'completed') {
           this.notifyProgress(`Done: ${tcu.title ?? 'tool'}`, true);
         } else if (tcu.status) {
@@ -191,6 +214,9 @@ export class DispatchAcpClient implements AcpClient {
           toolCallId: tcu.toolCallId,
           kind: tcu.kind,
           status: tcu.status,
+          output: tcu.output,
+          error: tcu.error,
+          raw: update as unknown as Record<string, unknown>,
         }, {
           toolCallId: tcu.toolCallId,
           toolName: tcu.title ?? undefined,

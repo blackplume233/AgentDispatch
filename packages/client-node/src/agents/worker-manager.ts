@@ -66,6 +66,13 @@ export class WorkerManager {
     const worker = this.workers.get(agentId);
     if (!worker) return;
 
+    // Worker was already reset to idle by cancelRunningTask (intentional kill).
+    // Don't treat this as a crash or trigger auto-restart.
+    if (worker.status === 'idle') {
+      worker.restartCount = 0;
+      return;
+    }
+
     const taskId = worker.currentTaskId;
 
     if (exitCode === 0) {

@@ -177,6 +177,12 @@ export class TaskService {
   }
 
   async claimTask(taskId: string, dto: ClaimTaskDTO): Promise<Task> {
+    if (!dto.clientId || !dto.agentId) {
+      throw new ValidationError(
+        ErrorCode.VALIDATION_ERROR,
+        'clientId and agentId are required to claim a task',
+      );
+    }
     const task = await this.getTask(taskId);
 
     if (task.status !== 'pending') {
@@ -222,7 +228,13 @@ export class TaskService {
       );
     }
 
-    if (task.claimedBy?.clientId) {
+    if (task.claimedBy) {
+      if (!task.claimedBy.clientId) {
+        throw new ConflictError(
+          ErrorCode.TASK_ALREADY_CLAIMED,
+          'Task has no owner; use force-release to release',
+        );
+      }
       if (!dto.clientId || task.claimedBy.clientId !== dto.clientId) {
         throw new ConflictError(
           ErrorCode.TASK_ALREADY_CLAIMED,
@@ -353,8 +365,9 @@ export class TaskService {
       );
     }
 
-    if (task.claimedBy?.clientId) {
-      if (!dto.clientId || task.claimedBy.clientId !== dto.clientId) {
+    // When clientId provided: must match owner. When omitted: admin/external cancel (bypass ownership).
+    if (dto.clientId != null && task.claimedBy?.clientId) {
+      if (task.claimedBy.clientId !== dto.clientId) {
         throw new ConflictError(
           ErrorCode.TASK_ALREADY_CLAIMED,
           `Only the task owner (${task.claimedBy.clientId}) can cancel this task`,
