@@ -121,6 +121,18 @@ export function loadConfig(configPath?: string): ServerConfig {
       tokens: mergeTokens(fc.auth?.tokens, process.env['DISPATCH_AUTH_TOKENS']),
       sessionTtl: fc.auth?.sessionTtl ?? DEFAULT_CONFIG.auth.sessionTtl,
     },
+    ...(fc.serverManager
+      ? {
+          serverManager: {
+            enabled: fc.serverManager.enabled ?? false,
+            agentConfig: fc.serverManager.agentConfig,
+            heartbeatInterval: fc.serverManager.heartbeatInterval ?? 30_000,
+            restartOnFailure: fc.serverManager.restartOnFailure ?? true,
+            maxRestartAttempts: fc.serverManager.maxRestartAttempts ?? 3,
+            restartDelay: fc.serverManager.restartDelay ?? 5_000,
+          },
+        }
+      : {}),
   };
 }
 

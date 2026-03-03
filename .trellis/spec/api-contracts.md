@@ -41,6 +41,7 @@
 | 2026-03-01 | 新增 Auth 路由（login/logout/me）；所有 API 启用可选 Bearer Token 鉴权；`/health` 返回体新增 `authEnabled` 字段；新增 `UNAUTHORIZED` 错误码                                                                                                                                                                                                   | [CHANGED] | Server, ClientNode, Dashboard         |
 | 2026-03-02 | AgentRegistration/AgentInfo 新增 `groupId?: string` 字段（虚拟 Worker 展开分组标识）；AgentRegistration 新增 `maxConcurrency?`/`presetPrompt?` 字段；Server `register()` 持久化 groupId；`PATCH /clients/:id/agents` 保留 groupId | [CHANGED] | Server, ClientNode, Dashboard |
 | 2026-03-02 | 任务执行鲁棒性强化 (#13)：`handleTaskCompletion` 重试+fallback cancel+条件性 idle 标记；per-task claim 断路器（3 次上限）；Client reconnect 孤儿任务回收；`atomicWrite` rename EPERM 重试；`stop()` 优雅等待 pending completions；新增 `POST /tasks/:id/force-release` admin-only 端点；心跳交叉验证（Server 对比 AgentInfo.currentTaskId 与任务归属自动释放孤儿任务） | [CHANGED] | Server, ClientNode, Dashboard |
+| 2026-03-03 | 服务端取消下发 + 对账逻辑补全：`POST /clients/:id/heartbeat` 由 `204` 改为 `200 + HeartbeatResponse`，响应携带 `cancelTasks` 通知 Client 停止已取消任务；ClientNode `reconcileOrphanedTasks` 增加反向对账（本地 busy worker 对应 Server 已 cancelled 的任务自动停止）；`crossValidateOnlineClients` 增加 cancelled 任务日志 | [CHANGED] | Server, ClientNode, Shared |
 | 2026-02-28 | 初始化全部接口定义                                                                                                                                                                                                                                                                                                                            | NEW       | 全部模块                              |
 
 ---
@@ -205,6 +206,24 @@ IPC 请求带 token
 #### HeartbeatDTO [CHANGED 2026-03-01]
 
 `POST /clients/:id/heartbeat` 的 body 为可选。空 body 或 `{}` 仅更新 `lastHeartbeat` 时间戳，不修改 agents 列表。
+
+#### HeartbeatResponse [NEW 2026-03-03]
+
+`POST /clients/:id/heartbeat` 由原来的 `204 No Content` 改为 `200 OK` + JSON body，返回 `HeartbeatResponse`：
+
+```typescript
+interface HeartbeatResponse {
+  cancelTasks?: string[];  // Server 要求 Client 立即停止的任务 ID 列表
+}
+```
+
+**语义**：Server 在处理心跳时，检查上报的每个 `status: 'busy'` Agent 的 `currentTaskId` 是否对应一个已处于 `cancelled` 状态的任务。若发现，则将该 `taskId` 加入 `cancelTasks` 列表，Client 收到后应立即调用 `cancelRunningTask()`。
+
+**触发场景**：
+- 管理员通过 `POST /tasks/:id/cancel` 取消了一个正在被 ClientNode 执行的任务
+- Server 的 `forceRelease` 或其他机制将任务状态切换为 `cancelled`，而 ClientNode 尚未感知
+
+**幂等性**：若 `cancelTasks` 为空，返回 `{}` 或 `{ cancelTasks: [] }`，Client 忽略即可。
 
 #### Complete 端点行为 [CHANGED 2026-03-01]
 

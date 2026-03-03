@@ -282,6 +282,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@agentdispatch/acp':
+        specifier: workspace:*
+        version: link:../acp
       '@agentdispatch/shared':
         specifier: workspace:*
         version: link:../shared

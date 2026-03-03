@@ -9,6 +9,7 @@ import type {
   Client,
   RegisterClientDTO,
   HeartbeatDTO,
+  HeartbeatResponse,
   ProgressDTO,
   ClaimTaskDTO,
   ReleaseTaskDTO,
@@ -98,8 +99,8 @@ export class ServerHttpClient {
     await this.request<undefined>('DELETE', `/clients/${clientId}`);
   }
 
-  async heartbeat(clientId: string, dto: HeartbeatDTO): Promise<void> {
-    await this.request<undefined>('POST', `/clients/${clientId}/heartbeat`, dto);
+  async heartbeat(clientId: string, dto: HeartbeatDTO): Promise<HeartbeatResponse> {
+    return this.request<HeartbeatResponse>('POST', `/clients/${clientId}/heartbeat`, dto);
   }
 
   async updateAgents(clientId: string, agents: AgentInfo[]): Promise<Client> {

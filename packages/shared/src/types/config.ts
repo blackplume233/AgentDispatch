@@ -47,6 +47,14 @@ export interface ServerConfig {
     tokens: Array<string | { token: string; role?: AuthTokenRole }>;
     sessionTtl: number;
   };
+  serverManager?: {
+    enabled: boolean;
+    agentConfig: ManagerConfig;
+    heartbeatInterval: number;
+    restartOnFailure: boolean;
+    maxRestartAttempts: number;
+    restartDelay: number;
+  };
 }
 
 export type AuthTokenRole = 'admin' | 'client' | 'operator';

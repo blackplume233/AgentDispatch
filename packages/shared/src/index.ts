@@ -35,6 +35,7 @@ export type {
   ProgressDTO,
   RegisterClientDTO,
   HeartbeatDTO,
+  HeartbeatResponse,
   AppendTaskLogsDTO,
   AppendClientLogsDTO,
 } from './types/dto.js';

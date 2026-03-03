@@ -15,6 +15,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@agentdispatch/acp": "workspace:*",
     "@agentdispatch/shared": "workspace:*",
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^9.0.0",

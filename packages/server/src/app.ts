@@ -15,6 +15,7 @@ import { ArtifactService } from './services/artifact-service.js';
 import { AttachmentService } from './services/attachment-service.js';
 import { ArchiveScheduler } from './services/archive-scheduler.js';
 import { CallbackService } from './services/callback-service.js';
+import { ServerManagerService } from './services/server-manager-service.js';
 import { Logger } from './utils/logger.js';
 import { AuthManager, registerAuthHook } from './middleware/auth.js';
 import { registerAuthRoutes } from './routes/auth.js';
@@ -32,6 +33,7 @@ export interface AppContext {
   logger: Logger;
   queue: OperationQueue;
   authManager: AuthManager | null;
+  serverManager: ServerManagerService | null;
 }
 
 export async function createApp(
@@ -198,9 +200,24 @@ export async function createApp(
   // Health check
   app.get('/health', async () => ({ status: 'ok', version: '0.0.1', authEnabled: config.auth?.enabled ?? false }));
 
+  let serverManager: ServerManagerService | null = null;
+  if (config.serverManager?.enabled && config.serverManager.agentConfig) {
+    serverManager = new ServerManagerService(
+      {
+        agentConfig: config.serverManager.agentConfig,
+        heartbeatInterval: config.serverManager.heartbeatInterval,
+        restartOnFailure: config.serverManager.restartOnFailure,
+        maxRestartAttempts: config.serverManager.maxRestartAttempts,
+        restartDelay: config.serverManager.restartDelay,
+      },
+      logger,
+    );
+  }
+
   const context: AppContext = {
     taskService, clientService, artifactService, attachmentService,
     archiveScheduler, archiveCache, logStore, logger, queue, authManager,
+    serverManager,
   };
 
   return { app, context };

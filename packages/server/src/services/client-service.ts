@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { Client, AgentInfo, RegisterClientDTO, HeartbeatDTO } from '@agentdispatch/shared';
+import type { Client, AgentInfo, RegisterClientDTO, HeartbeatDTO, HeartbeatResponse } from '@agentdispatch/shared';
 import { ErrorCode, NotFoundError, ConflictError, ValidationError } from '@agentdispatch/shared';
 import type { OperationQueue } from '../queue/operation-queue.js';
 import type { ClientStore } from '../store/client-store.js';
@@ -140,7 +140,7 @@ export class ClientService {
     return this.store.list();
   }
 
-  async heartbeat(clientId: string, dto?: HeartbeatDTO): Promise<void> {
+  async heartbeat(clientId: string, dto?: HeartbeatDTO): Promise<HeartbeatResponse> {
     const client = await this.getClient(clientId);
     const updated: Client = {
       ...client,
@@ -155,6 +155,31 @@ export class ClientService {
         await this.store.save(updated);
       },
     });
+
+    // Check if any busy agents are running tasks that have since been cancelled on the server
+    const cancelTasks: string[] = [];
+    if (this.taskService && dto?.agents) {
+      for (const agent of dto.agents) {
+        if (agent.status === 'busy' && agent.currentTaskId) {
+          try {
+            const task = await this.taskService.getTask(agent.currentTaskId);
+            if (task.status === 'cancelled') {
+              cancelTasks.push(agent.currentTaskId);
+              this.logger.warn('Agent is running a cancelled task; instructing client to stop', {
+                category: 'task',
+                event: 'task.cancel_instructed',
+                context: { taskId: agent.currentTaskId, clientId, agentId: agent.id },
+              });
+            }
+          } catch {
+            // Task not found — also tell client to stop (task may have been deleted)
+            cancelTasks.push(agent.currentTaskId);
+          }
+        }
+      }
+    }
+
+    return cancelTasks.length > 0 ? { cancelTasks } : {};
   }
 
   async updateAgents(clientId: string, agents: AgentInfo[]): Promise<Client> {
@@ -264,7 +289,7 @@ export class ClientService {
     onlineClients: Client[],
     now: number,
   ): Promise<void> {
-    if (!this.taskService || onlineClients.length === 0 || activeTasks.length === 0) return;
+    if (!this.taskService || onlineClients.length === 0) return;
 
     const gracePeriod = this.heartbeatTimeout * 2;
 
@@ -277,39 +302,62 @@ export class ClientService {
       clientAgentMap.set(client.id, agentMap);
     }
 
-    for (const task of activeTasks) {
-      const clientId = task.claimedBy?.clientId;
-      const agentId = task.claimedBy?.agentId;
-      if (!clientId || !agentId) continue;
+    // Validate claimed/in_progress tasks against what agents are actually reporting
+    if (activeTasks.length > 0) {
+      for (const task of activeTasks) {
+        const clientId = task.claimedBy?.clientId;
+        const agentId = task.claimedBy?.agentId;
+        if (!clientId || !agentId) continue;
 
-      const agentMap = clientAgentMap.get(clientId);
-      if (!agentMap) continue;
+        const agentMap = clientAgentMap.get(clientId);
+        if (!agentMap) continue;
 
-      const claimedTime = task.claimedAt ? new Date(task.claimedAt).getTime() : 0;
-      if (now - claimedTime < gracePeriod) continue;
+        const claimedTime = task.claimedAt ? new Date(task.claimedAt).getTime() : 0;
+        if (now - claimedTime < gracePeriod) continue;
 
-      const reportedTaskId = agentMap.get(agentId);
-      if (reportedTaskId === task.id) continue;
+        const reportedTaskId = agentMap.get(agentId);
+        if (reportedTaskId === task.id) continue;
 
-      try {
-        const reason = `Heartbeat cross-validation: agent ${agentId} reports ${reportedTaskId ? `task ${reportedTaskId.slice(0, 8)}` : 'idle'}, expected task ${task.id.slice(0, 8)}`;
-        await this.taskService.releaseTask(task.id, { clientId, reason });
-        this.logger.warn('Released stale task via cross-validation', {
-          category: 'task',
-          event: 'task.released.cross_validation',
-          context: {
-            taskId: task.id,
-            clientId,
-            agentId,
-            reportedTaskId: reportedTaskId ?? null,
-          },
-        });
-      } catch {
-        this.logger.warn('Failed to release stale task via cross-validation', {
-          category: 'task',
-          event: 'task.release.cross_validation_failed',
-          context: { taskId: task.id, clientId, agentId },
-        });
+        try {
+          const reason = `Heartbeat cross-validation: agent ${agentId} reports ${reportedTaskId ? `task ${reportedTaskId.slice(0, 8)}` : 'idle'}, expected task ${task.id.slice(0, 8)}`;
+          await this.taskService.releaseTask(task.id, { clientId, reason });
+          this.logger.warn('Released stale task via cross-validation', {
+            category: 'task',
+            event: 'task.released.cross_validation',
+            context: {
+              taskId: task.id,
+              clientId,
+              agentId,
+              reportedTaskId: reportedTaskId ?? null,
+            },
+          });
+        } catch {
+          this.logger.warn('Failed to release stale task via cross-validation', {
+            category: 'task',
+            event: 'task.release.cross_validation_failed',
+            context: { taskId: task.id, clientId, agentId },
+          });
+        }
+      }
+    }
+
+    // Detect agents still reporting a cancelled task (cancel instruction delivered via heartbeat response,
+    // but log here so operators can observe stuck clients)
+    for (const client of onlineClients) {
+      for (const agent of client.agents) {
+        if (agent.status !== 'busy' || !agent.currentTaskId) continue;
+        try {
+          const task = await this.taskService.getTask(agent.currentTaskId);
+          if (task.status === 'cancelled') {
+            this.logger.warn('Agent still reporting cancelled task after cancel instruction', {
+              category: 'task',
+              event: 'task.cancel_stale_agent',
+              context: { taskId: agent.currentTaskId, clientId: client.id, agentId: agent.id },
+            });
+          }
+        } catch {
+          // Task not found is expected once cleaned up; ignore
+        }
       }
     }
   }

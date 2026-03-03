@@ -47,6 +47,9 @@ if (isDirectRun) {
 
   context.clientService.startHeartbeatCheck();
   context.archiveScheduler.start();
+  if (context.serverManager) {
+    void context.serverManager.start();
+  }
 
   app.listen({ host: config.host, port: config.port }, (err: Error | null, address: string) => {
     if (err) {
@@ -59,6 +62,9 @@ if (isDirectRun) {
   const shutdown = async (): Promise<void> => {
     context.clientService.stopHeartbeatCheck();
     context.archiveScheduler.stop();
+    if (context.serverManager) {
+      await context.serverManager.stop();
+    }
     context.archiveCache.destroy();
     context.authManager?.destroy();
     await context.queue.drain();

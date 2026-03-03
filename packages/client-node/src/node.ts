@@ -1046,7 +1046,7 @@ export class ClientNode {
   private async doHeartbeat(): Promise<void> {
     if (!this.client || this.reconnecting) return;
     try {
-      await this.httpClient.heartbeat(this.client.id, {
+      const resp = await this.httpClient.heartbeat(this.client.id, {
         agents: this.buildAgentInfos(),
       });
       if (this.consecutiveHeartbeatFailures > 0) {
@@ -1054,6 +1054,14 @@ export class ClientNode {
       }
       this.consecutiveHeartbeatFailures = 0;
       this.flushClientLogs();
+
+      // Server instructs us to cancel tasks that have been cancelled server-side
+      if (resp.cancelTasks && resp.cancelTasks.length > 0) {
+        for (const taskId of resp.cancelTasks) {
+          this.log(`Server instructed cancel for task ${taskId.slice(0, 8)}`);
+          void this.cancelRunningTask(taskId, 'Cancelled by server');
+        }
+      }
     } catch {
       this.consecutiveHeartbeatFailures++;
       this.log(
@@ -1139,12 +1147,14 @@ export class ClientNode {
     const clientId = this.client.id;
     try {
       const allTasks = await this.httpClient.listTasks({});
+      const taskMap = new Map(allTasks.map((t) => [t.id, t]));
+
+      // Forward reconcile: release tasks that Server thinks we own but we have no worker for
       const myOrphans = allTasks.filter(
         (t) =>
           (t.status === 'in_progress' || t.status === 'claimed') &&
           t.claimedBy?.clientId === clientId,
       );
-      if (myOrphans.length === 0) return;
 
       const activeTaskIds = new Set(
         this.workerManager
@@ -1174,6 +1184,38 @@ export class ClientNode {
           released,
           total: myOrphans.length,
         });
+      }
+
+      // Reverse reconcile: stop workers whose tasks have been cancelled on the Server
+      let cancelled = 0;
+      for (const worker of this.workerManager.getAllWorkers()) {
+        if (!worker.currentTaskId) continue;
+        const serverTask = taskMap.get(worker.currentTaskId);
+        if (!serverTask || serverTask.status === 'cancelled') {
+          try {
+            await this.cancelRunningTask(
+              worker.currentTaskId,
+              'Task was cancelled on server during reconcile',
+            );
+            cancelled++;
+            this.log(
+              `Stopped worker for cancelled task ${worker.currentTaskId.slice(0, 8)} (server status: ${serverTask?.status ?? 'not found'})`,
+            );
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.log(
+              `Failed to stop worker for cancelled task ${worker.currentTaskId.slice(0, 8)}: ${msg}`,
+            );
+          }
+        }
+      }
+      if (cancelled > 0) {
+        this.recordClientLog(
+          'info',
+          'task.cancelled_reconcile',
+          `Stopped ${cancelled} worker(s) for server-cancelled tasks`,
+          { cancelled },
+        );
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -36,9 +36,8 @@ export function registerClientRoutes(app: FastifyInstance, clientService: Client
   app.post<{ Params: { id: string }; Body: HeartbeatDTO }>(
     '/api/v1/clients/:id/heartbeat',
     { preHandler: [workerOnly] },
-    async (request, reply) => {
-      await clientService.heartbeat(request.params.id, request.body);
-      return reply.code(204).send();
+    async (request) => {
+      return clientService.heartbeat(request.params.id, request.body);
     },
   );
 

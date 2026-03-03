@@ -34,6 +34,7 @@
 | 2026-03-01 | 新增 `DISPATCH_TOKEN`、`DISPATCH_IPC_PATH` 环境变量；Worker 临时 Token 由 ClientNode 签发并注入子进程环境 | [CHANGED] | ClientNode, CLI |
 | 2026-03-02 | AgentConfig 新增 `maxConcurrency` 字段（默认 1）；`allowMultiProcess` 标记 DEPRECATED，由 `maxConcurrency` 替代；系统内部通过虚拟 Worker 展开实现并发 | [CHANGED] | ClientNode, Server, Dashboard |
 | 2026-03-02 | WorkerConfig 新增 `presetPrompt` 字段（静态前置 prompt）；AgentInfo/AgentRegistration 新增 `groupId` 字段（虚拟 Worker 分组标识）；Server 注册时持久化 groupId，PATCH agents 保留 | [CHANGED] | ClientNode, Server, Dashboard |
+| 2026-03-03 | ServerConfig 新增 `serverManager` 可选配置段（enabled/agentConfig/heartbeatInterval/restartOnFailure/maxRestartAttempts/restartDelay），支持 Server 侧直接启动 Manager Agent | [NEW] | Server |
 | 2026-03-02 | ServerConfig 新增 `ai` 配置段（enabled/provider/endpoint/timeout/features），用于可选的任务元数据 AI 增强预处理 | [CHANGED] | Server |
 | 2026-02-28 | 初始化全部配置定义 | NEW | 全部模块 |
 
@@ -141,6 +142,18 @@ interface ServerConfig {
       descriptionEnhance: boolean; // 自动补充结构化 description，默认 true
       tagSuggestion: boolean;      // 自动推荐 tags，默认 true
     };
+  };
+
+  // [NEW 2026-03-03] Server 侧 Manager Agent（可选）
+  // Server 本地直接启动一个 ACP Manager Agent，负责任务分解/调度增强
+  // 若不配置或 enabled=false 则跳过，不影响 Server 启动
+  serverManager?: {
+    enabled: boolean;              // 是否启用，默认 false
+    agentConfig: AgentConfig;      // Manager Agent 配置（command/workDir/tags 等，同 ClientConfig.agents 中的 manager 类型）
+    heartbeatInterval: number;     // Manager 心跳间隔（ms），默认 30000
+    restartOnFailure: boolean;     // 进程异常后是否自动重启，默认 true
+    maxRestartAttempts: number;    // 最大重启次数（超过后放弃），默认 3
+    restartDelay: number;          // 重启等待时长（ms），默认 5000
   };
 
   // [CHANGED 2026-03-01] Token 鉴权

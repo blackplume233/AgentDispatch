@@ -61,6 +61,10 @@ export interface HeartbeatDTO {
   agents?: AgentInfo[];
 }
 
+export interface HeartbeatResponse {
+  cancelTasks?: string[];
+}
+
 export interface AppendTaskLogsDTO {
   clientId: string;
   agentId: string;

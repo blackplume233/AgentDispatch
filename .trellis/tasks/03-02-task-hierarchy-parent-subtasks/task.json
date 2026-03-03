@@ -1,0 +1,29 @@
+{
+  "id": "task-hierarchy-parent-subtasks",
+  "name": "task-hierarchy-parent-subtasks",
+  "title": "feat: support chained task decomposition (issue #12)",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "priority": "P2",
+  "creator": "actant-cursor-agent",
+  "assignee": "actant-cursor-agent",
+  "createdAt": "2026-03-02",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "master",
+  "worktree_path": null,
+  "current_phase": 0,
+  "next_action": [
+    {"phase": 1, "action": "implement"},
+    {"phase": 2, "action": "check"},
+    {"phase": 3, "action": "finish"},
+    {"phase": 4, "action": "create-pr"}
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "relatedFiles": [],
+  "notes": ""
+}

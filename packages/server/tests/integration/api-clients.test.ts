@@ -132,7 +132,9 @@ describe('Client API', () => {
       url: `/api/v1/clients/${client.id}/heartbeat`,
       payload: {},
     });
-    expect(res.statusCode).toBe(204);
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.payload) as { cancelTasks?: string[] };
+    expect(body).toBeDefined();
   });
 
   it('PATCH /api/v1/clients/:id/agents should update agents', async () => {
