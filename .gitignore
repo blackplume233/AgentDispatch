@@ -53,3 +53,6 @@ coverage/
 # Dispatch runtime data
 .dispatch/
 data/
+
+# Claude worktrees (local agent scratch space)
+.claude/worktrees/
