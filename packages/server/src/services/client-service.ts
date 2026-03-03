@@ -68,10 +68,24 @@ export class ClientService {
 
     const existing = await this.findByName(dto.name);
     if (existing) {
-      throw new ConflictError(
-        ErrorCode.CLIENT_ALREADY_REGISTERED,
-        `Client with name "${dto.name}" already registered`,
-      );
+      if (existing.status === 'offline') {
+        await this.queue.enqueue({
+          type: 'client.replace_offline',
+          execute: async () => {
+            await this.store.delete(existing.id);
+          },
+        });
+        this.logger.info('Replaced offline client with same name', {
+          category: 'client',
+          event: 'client.replaced_offline',
+          context: { oldId: existing.id, name: dto.name },
+        });
+      } else {
+        throw new ConflictError(
+          ErrorCode.CLIENT_ALREADY_REGISTERED,
+          `Client with name "${dto.name}" already registered`,
+        );
+      }
     }
 
     const now = new Date().toISOString();
@@ -262,6 +276,8 @@ export class ClientService {
       return offlineSet.has(claimClientId) || !knownClientIds.has(claimClientId);
     });
 
+    const releasedByClient = new Map<string, string[]>();
+
     for (const task of orphanedTasks) {
       const clientId = task.claimedBy?.clientId ?? '';
       const reason = knownClientIds.has(clientId)
@@ -274,11 +290,61 @@ export class ClientService {
           event: 'task.released.auto',
           context: { taskId: task.id, clientId, reason },
         });
+        const agentId = task.claimedBy?.agentId;
+        if (agentId) {
+          const list = releasedByClient.get(clientId) ?? [];
+          list.push(agentId);
+          releasedByClient.set(clientId, list);
+        }
       } catch {
         this.logger.warn('Failed to release orphaned task', {
           category: 'task',
           event: 'task.release.failed',
           context: { taskId: task.id, clientId },
+        });
+      }
+    }
+
+    await this.cleanupAgentStateAfterRelease(releasedByClient);
+  }
+
+  private async cleanupAgentStateAfterRelease(
+    releasedByClient: Map<string, string[]>,
+  ): Promise<void> {
+    for (const [clientId, agentIds] of releasedByClient) {
+      try {
+        const client = await this.store.get(clientId);
+        if (!client) continue;
+
+        const agentIdSet = new Set(agentIds);
+        let needsUpdate = false;
+        const updatedAgents = client.agents.map((agent) => {
+          if (agentIdSet.has(agent.id) && (agent.status === 'busy' || agent.currentTaskId)) {
+            needsUpdate = true;
+            return { ...agent, status: 'idle' as const, currentTaskId: undefined };
+          }
+          return agent;
+        });
+
+        if (needsUpdate) {
+          const updated: Client = { ...client, agents: updatedAgents };
+          await this.queue.enqueue({
+            type: 'client.cleanup_agents',
+            execute: async () => {
+              await this.store.save(updated);
+            },
+          });
+          this.logger.info('Cleaned up agent state after orphan task release', {
+            category: 'client',
+            event: 'agent.state_cleaned',
+            context: { clientId, agentIds },
+          });
+        }
+      } catch {
+        this.logger.warn('Failed to clean up agent state', {
+          category: 'client',
+          event: 'agent.cleanup_failed',
+          context: { clientId },
         });
       }
     }
