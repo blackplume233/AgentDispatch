@@ -111,6 +111,10 @@ export class WorkerManager {
     return this.workers.get(agentId);
   }
 
+  findWorkerByTaskId(taskId: string): WorkerState | undefined {
+    return Array.from(this.workers.values()).find((w) => w.currentTaskId === taskId);
+  }
+
   getIdleWorkers(): WorkerState[] {
     return Array.from(this.workers.values()).filter((w) => w.status === 'idle');
   }

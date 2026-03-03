@@ -14,6 +14,7 @@ import type {
   ReleaseTaskDTO,
   ProgressDTO,
   CancelTaskDTO,
+  FailTaskDTO,
   AppendTaskLogsDTO,
 } from '@agentdispatch/shared';
 import { ValidationError, ErrorCode, TERMINAL_TASK_STATUSES } from '@agentdispatch/shared';
@@ -161,6 +162,15 @@ export function registerTaskRoutes(
     { preHandler: [workerOnly] },
     async (request) => {
       return taskService.cancelTask(request.params.id, request.body);
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: FailTaskDTO }>(
+    '/api/v1/tasks/:id/fail',
+    { preHandler: [workerOnly] },
+    async (request) => {
+      const { reason } = request.body;
+      return taskService.failTask(request.params.id, reason);
     },
   );
 

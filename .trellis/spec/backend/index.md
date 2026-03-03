@@ -810,6 +810,42 @@ rl.on('line', (line) => {
 });
 ```
 
+### CLI ↔ IPC 对等测试（强制） [NEW 2026-03-03]
+
+> **⚠️ 每次涉及 CLI 命令、IPC 处理器、REST 路由的变更，必须验证 CLI ↔ IPC ↔ Server 三层的完整对等性。遗漏任何一层都会导致运行时 "Unknown IPC command" 或 404。**
+
+**背景**（Issue #18）：CLI 在 `client-cli/src/commands/` 中注册了 6 个命令（`task.assign`、`task.release`、`worker.complete`/`fail`/`heartbeat`/`log`），但 `client-node/src/node.ts` 的 `handleIPC` 中没有对应的 `case` 分支，导致 CLI 调用时全部返回 `Unknown IPC command`。
+
+**必须检查的对等矩阵**：
+
+| CLI 命令文件 (`client-cli/src/commands/*.ts`) | IPC 处理器 (`client-node/src/node.ts` `handleIPC`) | 服务端路由 (`server/src/routes/*.ts`) |
+|----------------------------------------------|---------------------------------------------------|--------------------------------------|
+| `client.send('xxx', payload)` | `case 'xxx': { ... }` | `app.post('/api/v1/...')` |
+
+**验证脚本**（变更后手动或 CI 运行）：
+
+```bash
+node scripts/qa/check-ipc-command-parity.mjs
+```
+
+**开发检查清单**：
+
+- [ ] 新增 CLI 命令 → 同时新增 IPC 处理器 + 所需的 HTTP 方法
+- [ ] 新增 IPC 处理器 → 确认 CLI 有对应命令暴露给用户
+- [ ] 新增 Server 路由 → 确认 `ServerHttpClient` 有对应方法，IPC 处理器有调用路径
+- [ ] `WORKER_ONLY_COMMANDS` 集合与实际 IPC case 分支保持同步
+- [ ] payload 形状在 CLI 发送端和 IPC 处理器接收端一致（字段名、必填/可选）
+
+**Anti-pattern**：
+
+```typescript
+// Don't — CLI 发送了 agentId 但处理器期望从 payload 中读取 taskId（字段名不匹配）
+// CLI 端
+await client.send('worker.status', { taskId });
+// IPC 处理器端
+const s = payload as { agentId: string };  // ← taskId 丢失
+```
+
 ### 测试命名
 
 ```
@@ -1620,8 +1656,9 @@ function expandAgentConfig(config: AgentConfig): AgentConfig[] {
 
 1. **先 Spec 再代码** — 在对应 spec 文档中修改并标注 `[BREAKING]`/`[CHANGED]`/`[DEPRECATED]` + 日期
 2. **影响分析** — 列出所有消费该接口的模块（Server? ClientNode? CLI? Dashboard?）
-3. **同步测试** — 所有受影响模块的测试必须同步更新
-4. **Breaking Change Commit** — 使用 `feat(api)!: description` 格式
+3. **CLI ↔ IPC 对等验证** — 运行 `node scripts/qa/check-ipc-command-parity.mjs`，确认三层对等（见 § CLI ↔ IPC 对等测试）
+4. **同步测试** — 所有受影响模块的测试必须同步更新
+5. **Breaking Change Commit** — 使用 `feat(api)!: description` 格式
 
 **绝对禁止**：
 

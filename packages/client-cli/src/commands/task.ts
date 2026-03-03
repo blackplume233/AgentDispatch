@@ -32,4 +32,14 @@ export function registerTaskCommands(program: Command, getClient: () => IPCClien
       await client.send('task.release', { taskId, reason: opts.reason });
       console.log(`Task ${taskId} released`);
     });
+
+  taskCmd
+    .command('cancel <taskId>')
+    .description('Cancel a running task')
+    .option('--reason <reason>', 'Cancellation reason')
+    .action(async (taskId: string, opts: { reason?: string }) => {
+      const client = getClient();
+      await client.send('task.cancel', { taskId, reason: opts.reason });
+      console.log(`Task ${taskId} cancelled`);
+    });
 }

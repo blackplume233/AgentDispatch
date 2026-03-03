@@ -41,6 +41,11 @@ export interface CancelTaskDTO {
   reason?: string;
 }
 
+export interface FailTaskDTO {
+  clientId: string;
+  reason: string;
+}
+
 export interface ProgressDTO {
   clientId: string;
   agentId: string;

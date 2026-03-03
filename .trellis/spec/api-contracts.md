@@ -44,6 +44,7 @@
 | 2026-03-03 | 服务端取消下发 + 对账逻辑补全：`POST /clients/:id/heartbeat` 由 `204` 改为 `200 + HeartbeatResponse`，响应携带 `cancelTasks` 通知 Client 停止已取消任务；ClientNode `reconcileOrphanedTasks` 增加反向对账（本地 busy worker 对应 Server 已 cancelled 的任务自动停止）；`crossValidateOnlineClients` 增加 cancelled 任务日志 | [CHANGED] | Server, ClientNode, Shared |
 | 2026-03-03 | `POST /tasks/:id/complete` 支持无 artifact 简单完成（fix #17）：检查 `content-type` 是否含 `multipart/form-data`，若否则跳过 artifact 上传直接完成任务（`artifacts` 字段为 undefined）；multipart 路径不变（仍需 zip + result.json）。ProgressDTO 字段勘误：必填字段为 `clientId`、`agentId`、`progress`（整数，非 `percent`），缺少 `clientId` 时所有权检查会返回 409 而非 400。 | [CHANGED] | Server |
 | 2026-03-03 | `POST /clients/register` 行为变更：同名 Client 已存在但 `status=offline` 时，自动删除旧记录并允许重新注册（不再抛 `CLIENT_ALREADY_REGISTERED`）；同名 Client 为 online/unknown 状态时仍抛冲突错误。Server 内部：`releaseOrphanedTasks()` 成功释放孤儿任务后，自动将对应 Agent 状态重置为 `idle`（`cleanupAgentStateAfterRelease`）。 | [CHANGED] | Server |
+| 2026-03-03 | IPC 命令对齐 (#18)：ClientNode 新增 6 个缺失 IPC 处理器（`task.assign`/`task.release`/`worker.complete`/`worker.fail`/`worker.heartbeat`/`worker.log`）；CLI 新增 `task cancel` 命令；Server 新增 `POST /tasks/:id/fail` 端点 + `FailTaskDTO`；修复 `worker.progress` 和 `worker.status` payload 不匹配（支持 `taskId` 反查 `agentId`） | [CHANGED] | Server, ClientNode, ClientCLI, Shared |
 | 2026-02-28 | 初始化全部接口定义                                                                                                                                                                                                                                                                                                                            | NEW       | 全部模块                              |
 
 ---
@@ -86,6 +87,7 @@ Health check 返回体变更：
 | `POST /tasks/:id/progress`    | 上报进度       |
 | `POST /tasks/:id/complete`    | 完成任务       |
 | `POST /tasks/:id/cancel`      | 取消任务       |
+| `POST /tasks/:id/fail`        | 标记任务失败   |
 | `POST /tasks/:id/logs`        | 追加任务日志   |
 | `POST /clients/register`      | 注册 Client    |
 | `DELETE /clients/:id`         | 注销 Client    |
@@ -126,7 +128,7 @@ DISPATCH_TOKEN=tok_xxx dispatch worker progress <taskId> --percent 50
 | `worker.heartbeat` | `dispatch worker heartbeat` |
 | `task.assign`      | `dispatch task assign`      |
 | `task.release`     | `dispatch task release`     |
-| `task.cancel`      | N/A (internal)              |
+| `task.cancel`      | `dispatch task cancel`      |
 
 **开放 IPC 命令**（任何 token 或无 token）：
 `node.status`, `node.register`, `node.unregister`, `node.stop`, `task.list`, `config.show`, `agent.*`
@@ -173,6 +175,7 @@ IPC 请求带 token
 | POST   | `/tasks/:id/force-release`         | 强制释放任务（admin-only）[NEW 2026-03-02] | `{ reason? }`                                       | `Task`             |
 | POST   | `/tasks/:id/complete`              | 完成任务（需上传产物）            | `multipart: CompleteTaskDTO + files`                | `Task`             |
 | POST   | `/tasks/:id/cancel`                | 取消任务                          | `{ clientId?, reason? }` [CHANGED 2026-03-01]       | `Task`             |
+| POST   | `/tasks/:id/fail`                  | 标记任务失败 [NEW 2026-03-03]     | `FailTaskDTO`                                       | `Task`             |
 | DELETE | `/tasks/:id`                       | 删除任务                          | -                                                   | `void`             |
 | GET    | `/tasks/:id/attachments`           | 列出任务附件                      | -                                                   | `TaskAttachment[]` |
 | GET    | `/tasks/:id/attachments/:filename` | 下载单个附件                      | -                                                   | `binary stream`    |
@@ -371,6 +374,12 @@ interface CompleteTaskDTO {
   summary?: string; // 可选的人类可读摘要
   // + multipart file: artifact.zip  (必须)
   // + multipart file: result.json   (必须)
+}
+
+// [NEW 2026-03-03] Worker 通过 IPC 报告任务失败
+interface FailTaskDTO {
+  clientId: string;
+  reason: string;
 }
 ```
 
@@ -664,15 +673,15 @@ interface IPCError {
 | `node.unregister`  | 从 Server 注销                  | -                                                                           | `{ success: true }`                                        |
 | `node.stop`        | 停止节点                        | -                                                                           | `{ success: true }`                                        |
 | `task.list`        | 查看 pending 任务               | -                                                                           | `Task[]`                                                   |
-| `task.assign`      | 手动分配任务到指定 Agent        | `{ taskId: string; agentId: string }`                                       | `{ success: boolean; message: string }`                    |
-| `task.release`     | 释放本地任务（回退到 pending）  | `{ taskId: string; reason?: string }`                                       | `{ success: boolean; message: string }`                    |
+| `task.assign`      | 手动分配任务到指定 Agent        | `{ taskId: string; agentId: string }`                                       | `Task` (claimed)                                           |
+| `task.release`     | 释放本地任务（回退到 pending）  | `{ taskId: string; reason?: string }`                                       | `Task` (pending)                                           |
 | `task.cancel`      | 取消运行中任务 [NEW 2026-02-28] | `{ taskId: string; reason?: string }`                                       | `{ success: boolean; message: string }`                    |
-| `worker.progress`  | 上报任务进度                    | `{ taskId, agentId, progress, message? }`                                   | `{ success: true }`                                        |
-| `worker.complete`  | 提交任务产物并标记完成          | `{ taskId: string; zipPath: string; resultPath: string; summary?: string }` | `{ success: true }`                                        |
-| `worker.fail`      | 报告任务失败                    | `{ taskId: string; reason: string; zipPath?: string; resultPath?: string }` | `{ success: true }`                                        |
-| `worker.status`    | 查询任务执行状态                | `{ taskId: string }`                                                        | `WorkerState`                                              |
+| `worker.progress`  | 上报任务进度                    | `{ taskId, agentId?, progress, message? }` [CHANGED 2026-03-03 agentId 可选] | `{ success: true }`                                       |
+| `worker.complete`  | 提交任务产物并标记完成          | `{ taskId: string; zipPath: string; resultPath: string }`                   | `Task` (completed)                                         |
+| `worker.fail`      | 报告任务失败                    | `{ taskId: string; reason: string }`                                        | `Task` (failed)                                            |
+| `worker.status`    | 查询任务执行状态                | `{ taskId?: string; agentId?: string }` [CHANGED 2026-03-03]               | `WorkerState`                                              |
 | `worker.log`       | 追加任务日志                    | `{ taskId: string; message: string }`                                       | `{ success: true }`                                        |
-| `worker.heartbeat` | Worker 存活心跳                 | `{ taskId: string }`                                                        | `{ success: true }`                                        |
+| `worker.heartbeat` | Worker 存活心跳                 | `{ taskId: string }`                                                        | `{ success: true, agentId, status }`                       |
 | `agent.add`        | 运行时注册新 Worker [HOT-PLUG]  | `{ command, workDir, id?, type?, capabilities?, autoClaimTags?, maxConcurrency?, presetPrompt? }` | `{ success: boolean; agentId: string; expandedIds: string[] }` |
 | `agent.remove`     | 运行时注销 Worker [HOT-PLUG]    | `{ agentId: string; force?: boolean }`                                      | `{ success: boolean; message: string; removedIds: string[] }` |
 | `agent.list`       | 列出 Agent                      | -                                                                           | `AgentInfo[]`                                              |
@@ -704,6 +713,12 @@ interface IPCError {
 ### 序列化
 
 JSON + 换行符分隔（JSON Lines / ndjson）
+
+### IPC 命令对等性约束 [NEW 2026-03-03]
+
+> **⚠️ CLI 命令表、IPC 处理器 `case` 分支、`WORKER_ONLY_COMMANDS` 集合必须保持严格同步。**
+> 新增或修改任何 IPC 命令时，必须同步检查三个位置的一致性，并运行 `node scripts/qa/check-ipc-command-parity.mjs` 验证。
+> 详见 `backend/index.md` § CLI ↔ IPC 对等测试。
 
 ---
 

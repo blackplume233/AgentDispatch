@@ -32,6 +32,7 @@ export type {
   ReleaseTaskDTO,
   CompleteTaskDTO,
   CancelTaskDTO,
+  FailTaskDTO,
   ProgressDTO,
   RegisterClientDTO,
   HeartbeatDTO,

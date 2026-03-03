@@ -1351,23 +1351,93 @@ export class ClientNode {
       case 'worker.progress': {
         const p = payload as {
           taskId: string;
-          agentId: string;
+          agentId?: string;
           progress: number;
           message?: string;
         };
         if (!this.client) throw new Error('Not registered');
+        const progressAgentId =
+          p.agentId ?? this.workerManager.findWorkerByTaskId(p.taskId)?.agentId;
+        if (!progressAgentId) throw new Error(`No worker found for task ${p.taskId}`);
         await this.httpClient.reportProgress(p.taskId, {
           clientId: this.client.id,
-          agentId: p.agentId,
+          agentId: progressAgentId,
           progress: p.progress,
           message: p.message,
         });
         return { success: true };
       }
 
+      case 'worker.complete': {
+        const wc = payload as { taskId: string; zipPath: string; resultPath: string };
+        if (!this.client) throw new Error('Not registered');
+        const result = await this.httpClient.completeTask(wc.taskId, {
+          zipPath: wc.zipPath,
+          resultPath: wc.resultPath,
+        });
+        return result;
+      }
+
+      case 'worker.fail': {
+        const wf = payload as { taskId: string; reason: string };
+        if (!this.client) throw new Error('Not registered');
+        const result = await this.httpClient.failTask(wf.taskId, this.client.id, wf.reason);
+        return result;
+      }
+
       case 'worker.status': {
-        const s = payload as { agentId: string };
-        return this.workerManager.getWorkerState(s.agentId) ?? { error: 'Worker not found' };
+        const s = payload as { agentId?: string; taskId?: string };
+        if (s.taskId) {
+          const worker = this.workerManager.findWorkerByTaskId(s.taskId);
+          return worker ?? { error: 'Worker not found' };
+        }
+        if (s.agentId) {
+          return this.workerManager.getWorkerState(s.agentId) ?? { error: 'Worker not found' };
+        }
+        return { error: 'Either agentId or taskId is required' };
+      }
+
+      case 'worker.log': {
+        const wl = payload as { taskId: string; message: string };
+        if (!this.client) throw new Error('Not registered');
+        const logWorker = this.workerManager.findWorkerByTaskId(wl.taskId);
+        if (!logWorker) throw new Error(`No worker found for task ${wl.taskId}`);
+        await this.httpClient.appendTaskLogs(wl.taskId, this.client.id, logWorker.agentId, [
+          {
+            id: uuid(),
+            timestamp: new Date().toISOString(),
+            type: 'system',
+            content: wl.message,
+          },
+        ]);
+        return { success: true };
+      }
+
+      case 'worker.heartbeat': {
+        const wh = payload as { taskId: string };
+        const hbWorker = this.workerManager.findWorkerByTaskId(wh.taskId);
+        if (!hbWorker) throw new Error(`No worker found for task ${wh.taskId}`);
+        return { success: true, agentId: hbWorker.agentId, status: hbWorker.status };
+      }
+
+      case 'task.assign': {
+        const ta = payload as { taskId: string; agentId: string };
+        if (!this.client) throw new Error('Not registered');
+        const claimed = await this.httpClient.claimTask(ta.taskId, {
+          clientId: this.client.id,
+          agentId: ta.agentId,
+        });
+        return claimed;
+      }
+
+      case 'task.release': {
+        const tr = payload as { taskId: string; reason?: string };
+        if (!this.client) throw new Error('Not registered');
+        const released = await this.httpClient.releaseTask(tr.taskId, {
+          clientId: this.client.id,
+          reason: tr.reason,
+        });
+        return released;
       }
 
       case 'task.cancel': {

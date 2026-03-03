@@ -87,6 +87,10 @@ export class ServerHttpClient {
     return this.request<Task>('POST', `/tasks/${taskId}/cancel`, { reason });
   }
 
+  async failTask(taskId: string, clientId: string, reason: string): Promise<Task> {
+    return this.request<Task>('POST', `/tasks/${taskId}/fail`, { clientId, reason });
+  }
+
   async registerClient(dto: RegisterClientDTO): Promise<Client> {
     return this.request<Client>('POST', '/clients/register', dto);
   }
