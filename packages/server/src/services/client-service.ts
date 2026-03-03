@@ -68,6 +68,9 @@ export class ClientService {
 
     const existing = await this.findByName(dto.name);
     if (existing) {
+      // Allow a restarted ClientNode to re-register under the same name if its
+      // previous record was left in offline state (stale heartbeat timeout).
+      // An online client with the same name is a genuine conflict and still rejected.
       if (existing.status === 'offline') {
         await this.queue.enqueue({
           type: 'client.replace_offline',
@@ -276,6 +279,9 @@ export class ClientService {
       return offlineSet.has(claimClientId) || !knownClientIds.has(claimClientId);
     });
 
+    // Track which agents were successfully released so their in-memory busy
+    // status can be reset after the loop — prevents stale busy state persisting
+    // on the client record when the client eventually comes back online.
     const releasedByClient = new Map<string, string[]>();
 
     for (const task of orphanedTasks) {
@@ -308,6 +314,9 @@ export class ClientService {
     await this.cleanupAgentStateAfterRelease(releasedByClient);
   }
 
+  // Resets agents that were holding orphaned tasks back to idle so the client
+  // record reflects reality after releaseOrphanedTasks() completes.
+  // Only writes to the store when at least one agent actually needs updating.
   private async cleanupAgentStateAfterRelease(
     releasedByClient: Map<string, string[]>,
   ): Promise<void> {
